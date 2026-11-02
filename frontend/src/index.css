@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+/* Identidad visual MACHOBOL (PLAN §1.2): usar como bg-primary, text-accent, bg-surface, etc. */
+@theme {
+  --color-primary: #4E342E;
+  --color-accent: #2E7D32;
+  --color-surface: #F5EEDC;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-stone-800 antialiased;
+  }
+}

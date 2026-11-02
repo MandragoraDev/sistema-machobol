@@ -1,0 +1,28 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno (solo se versiona .env.example)
+.env
+.env.*
+!.env.example
+
+# Build y cobertura
+dist/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Rasa / Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+rasa_bot/models/
+rasa_bot/.rasa/
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
