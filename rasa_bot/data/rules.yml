@@ -1,0 +1,194 @@
+version: "3.1"
+
+rules:
+  # --- Conversación general ---------------------------------------------------------------
+  - rule: Saludar
+    steps:
+      - intent: saludar
+      - action: utter_saludo
+
+  - rule: Despedirse
+    steps:
+      - intent: despedir
+      - action: utter_despedida
+
+  - rule: Mostrar el catálogo
+    steps:
+      - intent: consultar_productos
+      - action: action_mostrar_catalogo
+
+  - rule: Derivar a un asesor
+    steps:
+      - intent: hablar_con_asesor
+      - action: utter_derivar_asesor
+
+  # La consulta real por código de pedido llega en el Sprint 5.
+  - rule: Estado del pedido
+    steps:
+      - intent: consultar_estado_pedido
+      - action: utter_estado_pedido
+
+  - rule: Mensaje no entendido
+    steps:
+      - intent: nlu_fallback
+      - action: utter_no_entendi
+
+  - rule: Sí fuera de contexto
+    steps:
+      - intent: confirmar
+      - action: utter_menu
+
+  - rule: No fuera de contexto
+    steps:
+      - intent: negar
+      - action: utter_despedida
+
+  # --- Cotización: inicio y cierre -------------------------------------------------------
+  - rule: Iniciar la cotización
+    steps:
+      - intent: cotizar_porton
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Medidas sueltas inician la cotización
+    steps:
+      - intent: informar_medidas
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Tipo de portón suelto inicia la cotización
+    steps:
+      - intent: elegir_tipo_porton
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Accesorio suelto inicia la cotización
+    steps:
+      - intent: agregar_accesorio
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Cotizar al completar el formulario
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - action: formulario_cotizacion
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_cotizar
+      - action: utter_algo_mas
+
+  # --- Cotización: el mensaje no completa el dato pedido ----------------------------------
+  # El formulario tiene prioridad; estas reglas solo se aplican cuando el mensaje no aporta el dato
+  # que se pidió. Todas terminan volviendo al formulario (que repite la pregunta) o cerrándolo.
+  - rule: Mensaje no entendido durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: nlu_fallback
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Sí sin dato durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: confirmar
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Medidas no reconocidas durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: informar_medidas
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Tipo no reconocido durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: elegir_tipo_porton
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Accesorio no reconocido durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: agregar_accesorio
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Nueva cotización sin datos durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: cotizar_porton
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Saludo durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: saludar
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Catálogo durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: consultar_productos
+      - action: action_mostrar_catalogo
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Estado del pedido durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: consultar_estado_pedido
+      - action: utter_estado_pedido
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Cancelar la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: negar
+      - action: utter_cotizacion_cancelada
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion
+
+  - rule: Despedida durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: despedir
+      - action: utter_despedida
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion
+
+  - rule: Asesor durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: hablar_con_asesor
+      - action: utter_derivar_asesor
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion

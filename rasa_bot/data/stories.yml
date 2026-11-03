@@ -1,0 +1,23 @@
+version: "3.1"
+
+# El diálogo lo resuelven sobre todo las reglas (rules.yml) y el formulario de cotización.
+# Estas historias dan contexto de varios turnos a TEDPolicy.
+stories:
+  - story: Saludo, catálogo y cotización
+    steps:
+      - intent: saludar
+      - action: utter_saludo
+      - intent: consultar_productos
+      - action: action_mostrar_catalogo
+      - intent: cotizar_porton
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - story: Saludo y derivación a un asesor
+    steps:
+      - intent: saludar
+      - action: utter_saludo
+      - intent: hablar_con_asesor
+      - action: utter_derivar_asesor
+      - intent: despedir
+      - action: utter_despedida

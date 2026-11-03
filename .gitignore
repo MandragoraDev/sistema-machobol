@@ -21,6 +21,7 @@ __pycache__/
 *.pyc
 rasa_bot/models/
 rasa_bot/.rasa/
+rasa_bot/results/
 
 # Sistema operativo y editores
 .DS_Store

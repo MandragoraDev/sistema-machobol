@@ -1,0 +1,391 @@
+version: "3.1"
+
+# Convención de medidas: si el cliente no dice cuál es cuál ("4 por 2,20"), la primera es el ancho y la
+# segunda el alto. El bot siempre las confirma antes de cotizar.
+
+nlu:
+  - intent: saludar
+    examples: |
+      - hola
+      - holaa
+      - ola
+      - holi
+      - buenas
+      - buenos días
+      - buenos dias
+      - buenas tardes
+      - buenas noches
+      - buen día
+      - hola, buen día
+      - hola qué tal
+      - hola que tal
+      - qué tal
+      - saludos
+      - hola buenas tardes
+      - hola, buenas noches
+      - hola machobol
+      - hey
+      - alo
+      - hola, ¿hay alguien?
+      - buenas tardes señorita
+      - buen dia, como esta
+      - hey hola
+      - alo, buenas
+      - hola buenos días
+      - buenas, ¿cómo está?
+      - qué tal, buenas tardes
+
+  - intent: despedir
+    examples: |
+      - chau
+      - chao
+      - adiós
+      - adios
+      - hasta luego
+      - hasta pronto
+      - hasta mañana
+      - nos vemos
+      - bye
+      - gracias
+      - muchas gracias
+      - gracias, hasta luego
+      - muchas gracias, eso es todo
+      - eso es todo, gracias
+      - eso sería todo
+      - bueno, gracias
+      - ok gracias, chau
+      - me retiro, gracias
+      - que tenga buen día
+      - listo, gracias por la atención
+      - gracias por todo
+      - chau, gracias
+      - bye bye
+      - nos vemos luego
+      - adiós, que esté bien
+      - que tenga buena tarde
+      - gracias, eso era todo
+
+  - intent: consultar_productos
+    examples: |
+      - qué productos tienen
+      - que productos tienen
+      - qué venden
+      - que venden
+      - qué fabrican
+      - a qué se dedican
+      - qué ofrecen
+      - quiero ver el catálogo
+      - me pasa su catálogo
+      - tienen catalogo?
+      - quisiera información de sus productos
+      - me da información por favor
+      - qué tipos de portones hacen
+      - qué modelos de portones tienen
+      - hacen portones de madera?
+      - hacen portones [corredizos]{"entity": "tipo_porton", "value": "corredizo"}?
+      - hacen parques infantiles?
+      - tienen juegos para niños
+      - venden columpios
+      - cuánto cuesta el metro cuadrado
+      - cuál es el precio por metro cuadrado
+      - a cómo el metro cuadrado
+      - precios
+      - lista de precios
+      - qué precios manejan
+      - qué accesorios tienen
+      - tienen [motores]{"entity": "accesorio", "value": "motor"} para portones?
+      - ver productos
+
+  - intent: cotizar_porton
+    examples: |
+      - quiero cotizar un portón
+      - quiero cotizar un porton
+      - cotizar portón
+      - necesito una cotización
+      - necesito una cotizacion
+      - me puede cotizar un portón
+      - quisiera una cotización para un portón
+      - cuánto cuesta un portón
+      - cuanto sale un porton
+      - precio de un portón de madera
+      - necesito un portón para mi casa
+      - quiero hacer un portón para mi garaje
+      - quiero mandar a hacer un portón
+      - necesito presupuesto para un portón
+      - quiero comprar un portón
+      - necesito cambiar mi portón
+      - quiero un portón [corredizo](tipo_porton)
+      - necesito un portón [batiente](tipo_porton)
+      - cotícenme un portón [batiente](tipo_porton) por favor
+      - quiero un portón [corredizo](tipo_porton) de [4](ancho) por [2,20](alto)
+      - quiero un portón [corredizo](tipo_porton) de [4](ancho) x [2.20](alto)
+      - quiero un portón [corredizo](tipo_porton) de [4](ancho) metros por [2,20](alto) metros
+      - cuánto cuesta un portón [batiente](tipo_porton) de [3](ancho) por [2](alto)
+      - necesito un portón de [5](ancho) metros de ancho y [2.40](alto) de alto
+      - cotización de un portón [corredero]{"entity": "tipo_porton", "value": "corredizo"} de [3.5](ancho) por [2.1](alto)
+      - precio de portón [abatible]{"entity": "tipo_porton", "value": "batiente"} de [2.80](ancho) x [2](alto) con [motor](accesorio)
+      - quiero un portón [corredizo](tipo_porton) con [motor](accesorio)
+      - necesito un portón [batiente](tipo_porton) con [puerta peatonal]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - quiero un portón de [4](ancho) por [2,20](alto)
+      - me cotiza un portón de [6](ancho) x [2.5](alto) [corredizo](tipo_porton)
+      - cuánto me saldría un portón [batiente](tipo_porton) de [3,5](ancho) por [2,2](alto) con [motor](accesorio) y [puerta]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - quiero un portón [automático]{"entity": "accesorio", "value": "motor"}
+      - cotizame un porton [corredizo](tipo_porton) de [5](ancho) por [2](alto)
+      - quiero un portón [batiente](tipo_porton) de [3](ancho) por [2,10](alto) para mi garaje
+
+  - intent: informar_medidas
+    examples: |
+      - [4](ancho) por [2,20](alto)
+      - [4](ancho) x [2.20](alto)
+      - [3](ancho) por [2](alto)
+      - son [3.5](ancho) por [2.1](alto)
+      - mide [4](ancho) por [2.20](alto) metros
+      - [5](ancho) metros de ancho por [2.40](alto) de alto
+      - [2,20](alto) de alto y [4](ancho) de ancho
+      - el ancho es [3](ancho) y el alto [2](alto)
+      - ancho [4.5](ancho) alto [2.3](alto)
+      - tiene [6](ancho) metros de ancho
+      - el ancho es de [3,80](ancho) metros
+      - de ancho son [4](ancho) metros
+      - [2.5](alto) metros de alto
+      - el alto es de [2](alto) metros
+      - altura [2,40](alto)
+      - de alto [2.10](alto)
+      - [4](ancho) metros de largo y [2](alto) de alto
+      - el espacio mide [3](ancho) por [2.5](alto)
+      - las medidas son [4](ancho) x [2](alto)
+      - más o menos [5](ancho) por [2,2](alto)
+      - [2.20m](alto) de alto
+      - [4m](ancho) de ancho
+      - serían [3](ancho) metros por [2](alto) metros
+      - [400](ancho) por [220](alto) centímetros
+      - 4 metros
+      - 2,20
+      - 3.5
+      - mide 4
+      - dos metros
+      - unos 3 metros
+      - 2.20 m
+
+  - intent: elegir_tipo_porton
+    examples: |
+      - [corredizo](tipo_porton)
+      - el [corredizo](tipo_porton)
+      - [batiente](tipo_porton)
+      - el [batiente](tipo_porton)
+      - uno [corredizo](tipo_porton)
+      - prefiero [batiente](tipo_porton)
+      - me gusta el [corredizo](tipo_porton)
+      - quiero el [batiente](tipo_porton)
+      - mejor [corredizo](tipo_porton)
+      - de tipo [corredizo](tipo_porton)
+      - tipo [batiente](tipo_porton)
+      - que sea [batiente](tipo_porton)
+      - que sea [corredizo](tipo_porton) por favor
+      - opción [batiente](tipo_porton)
+      - [corredero]{"entity": "tipo_porton", "value": "corredizo"}
+      - [corrediza]{"entity": "tipo_porton", "value": "corredizo"}
+      - [deslizante]{"entity": "tipo_porton", "value": "corredizo"}
+      - [abatible]{"entity": "tipo_porton", "value": "batiente"}
+      - el [abatible]{"entity": "tipo_porton", "value": "batiente"} está bien
+      - el [de dos hojas]{"entity": "tipo_porton", "value": "batiente"}
+      - uno [de riel]{"entity": "tipo_porton", "value": "corredizo"}
+      - el [de riel]{"entity": "tipo_porton", "value": "corredizo"}
+      - uno [de dos hojas]{"entity": "tipo_porton", "value": "batiente"}
+      - prefiero el [corredizo](tipo_porton)
+      - mejor uno [batiente](tipo_porton)
+
+  - intent: agregar_accesorio
+    examples: |
+      - con [motor](accesorio)
+      - con [motor](accesorio) por favor
+      - quiero que tenga [motor](accesorio)
+      - agréguele [motor](accesorio)
+      - también quiero [motor](accesorio)
+      - quiero el [motor](accesorio)
+      - solo el [motor](accesorio)
+      - [motor](accesorio)
+      - lo quiero [automático]{"entity": "accesorio", "value": "motor"}
+      - que sea [motorizado]{"entity": "accesorio", "value": "motor"}
+      - con [motor eléctrico]{"entity": "accesorio", "value": "motor"}
+      - también con [puerta de ingreso]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - con [puerta peatonal]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - súmele una [puertita]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - y una [puerta]{"entity": "accesorio", "value": "puerta_ingreso"} para entrar caminando
+      - agregue la [puerta peatonal]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - solo la [puerta]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - [puerta de ingreso]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - [motor](accesorio) y [puerta]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - con [motor](accesorio) y [puerta de ingreso]{"entity": "accesorio", "value": "puerta_ingreso"}
+      - los dos, [motor](accesorio) y [puerta]{"entity": "accesorio", "value": "puerta_ingreso"}
+
+  - intent: confirmar
+    examples: |
+      - sí
+      - si
+      - sip
+      - claro
+      - claro que sí
+      - correcto
+      - está bien
+      - esta bien
+      - exacto
+      - así es
+      - dale
+      - ok
+      - okey
+      - de acuerdo
+      - perfecto
+      - afirmativo
+      - eso es
+      - ya
+      - por supuesto
+      - confirmo
+      - sí, correcto
+      - sí, están bien
+      - va
+      - sí por favor
+      - me parece bien
+      - okay
+      - oki
+      - vale
+      - dale pues
+      - sí, así es
+      - todo correcto
+      - exactamente
+      - sí señor
+      - claro, está bien
+
+  - intent: negar
+    examples: |
+      - no
+      - nop
+      - no gracias
+      - no, gracias
+      - ninguno
+      - ninguna
+      - nada
+      - no quiero
+      - incorrecto
+      - está mal
+      - no es así
+      - negativo
+      - para nada
+      - no por ahora
+      - no, ninguno
+      - sin accesorios
+      - no necesito
+      - no, está mal
+      - todavía no
+      - mejor no
+      - no deseo
+      - no me interesa
+      - no es correcto
+      - está incorrecto
+      - no está bien
+      - no necesito nada
+      - no, sin accesorios
+      - ninguno de esos
+
+  - intent: consultar_estado_pedido
+    examples: |
+      - cómo va mi pedido
+      - como va mi pedido
+      - estado de mi pedido
+      - quiero saber el estado de mi pedido
+      - en qué fase está mi portón
+      - ya está listo mi portón?
+      - cuándo me entregan mi portón
+      - cuándo lo instalan
+      - en qué va mi portón
+      - hay novedades de mi pedido?
+      - seguimiento de mi pedido
+      - ya empezaron a fabricar mi portón?
+      - tengo un pedido y quiero saber cómo va
+      - cuánto falta para mi portón
+      - en qué va mi pedido
+      - ya está listo mi pedido?
+      - cuánto falta para que esté listo mi pedido
+      - quiero saber cuándo me entregan
+      - mi pedido [MCH-2026-0001](codigo_pedido)
+      - estado del pedido [MCH-2026-0042](codigo_pedido)
+      - cómo va el pedido [MCH-2025-0310](codigo_pedido)
+      - quiero consultar mi pedido [mch-2026-0007](codigo_pedido)
+      - [MCH-2026-0123](codigo_pedido)
+      - avance de mi pedido [MCH-2026-0015](codigo_pedido)
+
+  - intent: hablar_con_asesor
+    examples: |
+      - quiero hablar con un asesor
+      - quiero hablar con una persona
+      - pásame con un asesor
+      - páseme con alguien
+      - necesito hablar con alguien
+      - quiero hablar con un humano
+      - hay alguien que me atienda?
+      - me puede atender una persona
+      - comuníqueme con un vendedor
+      - quiero hablar con el encargado
+      - asesor
+      - atención personalizada
+      - prefiero hablar con alguien real
+      - me pueden llamar?
+      - necesito que me llame un asesor
+      - quiero hablar con ventas
+      - agente
+      - operador
+      - con una persona por favor
+      - no quiero hablar con un bot
+      - quiero hablar con un agente
+      - un operador por favor
+      - agente humano
+      - hay un asesor disponible?
+      - me atiende un asesor por favor
+      - comuníqueme con alguien de ventas
+
+  - synonym: corredizo
+    examples: |
+      - corrediza
+      - corredizos
+      - corredizas
+      - corredero
+      - corredera
+      - deslizante
+      - de riel
+
+  - synonym: batiente
+    examples: |
+      - batientes
+      - abatible
+      - abatibles
+      - de dos hojas
+      - de abrir
+
+  - synonym: motor
+    examples: |
+      - motores
+      - motorizado
+      - motorizada
+      - automático
+      - automatico
+      - automatizado
+      - motor eléctrico
+      - motor electrico
+
+  - synonym: puerta_ingreso
+    examples: |
+      - puerta
+      - puertita
+      - puerta de ingreso
+      - puerta peatonal
+      - puerta pequeña
+      - ingreso peatonal
+
+  # Rasgos para DIET (RegexFeaturizer): cifras con decimal y unidad opcional ("2,20", "2.20 m", "4m").
+  - regex: numero_medida
+    examples: |
+      - \b\d{1,4}([.,]\d{1,2})?\s?(m|mts|metros|cm)?\b
+
+  - regex: codigo_pedido
+    examples: |
+      - \bmch-\d{4}-\d{4}\b

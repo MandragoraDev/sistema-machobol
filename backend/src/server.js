@@ -2,6 +2,7 @@ const app = require('./app');
 const env = require('./config/env');
 const logger = require('./config/logger');
 const { pool } = require('./config/db');
+const { esperarPendientes } = require('./utils/segundoPlano');
 
 const server = app.listen(env.port, (err) => {
   if (err) {
@@ -13,8 +14,11 @@ const server = app.listen(env.port, (err) => {
 
 function apagar(senal) {
   logger.info(`${senal} recibido: cerrando la API`);
+  // Antes de cerrar la BD se terminan de enviar las respuestas de WhatsApp en curso.
   server.close(() => {
-    pool.end().finally(() => process.exit(0));
+    esperarPendientes()
+      .then(() => pool.end())
+      .finally(() => process.exit(0));
   });
 }
 

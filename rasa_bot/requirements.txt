@@ -1,0 +1,4 @@
+# Python 3.10 (Rasa 3.6 no es compatible con 3.11 o superior).
+# El servidor de Rasa y el de acciones comparten este entorno.
+rasa==3.6.21
+rasa-sdk==3.6.2

@@ -1,0 +1,197 @@
+version: "3.1"
+
+intents:
+  - saludar
+  - despedir
+  - consultar_productos
+  - cotizar_porton
+  - informar_medidas
+  - elegir_tipo_porton
+  - agregar_accesorio
+  - confirmar
+  - negar
+  - consultar_estado_pedido
+  - hablar_con_asesor
+
+entities:
+  - tipo_porton
+  - ancho
+  - alto
+  - accesorio
+  - codigo_pedido
+
+# Los slots de la cotización no influyen en la predicción de acciones: el formulario decide qué preguntar.
+# Las entidades se toman en cualquier momento (un cliente puede dar tipo y medidas en el primer mensaje),
+# salvo cuando solo consulta el catálogo. Las mapeadas como `custom` las completa
+# validate_formulario_cotizacion, que además lee medidas como "4x2,20" que el tokenizador no separa.
+slots:
+  tipo_porton:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: tipo_porton
+        not_intent: consultar_productos
+  ancho:
+    type: float
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: ancho
+        not_intent: consultar_productos
+      - type: custom
+  alto:
+    type: float
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: alto
+        not_intent: consultar_productos
+      - type: custom
+  medidas_confirmadas:
+    type: bool
+    influence_conversation: false
+    mappings:
+      - type: from_intent
+        intent: confirmar
+        value: true
+        conditions:
+          - active_loop: formulario_cotizacion
+            requested_slot: medidas_confirmadas
+      - type: from_intent
+        intent: negar
+        value: false
+        conditions:
+          - active_loop: formulario_cotizacion
+            requested_slot: medidas_confirmadas
+  accesorios:
+    type: list
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: accesorio
+        not_intent: consultar_productos
+      - type: custom
+  fuera_ciudad:
+    type: bool
+    influence_conversation: false
+    mappings:
+      - type: from_intent
+        intent: confirmar
+        value: true
+        conditions:
+          - active_loop: formulario_cotizacion
+            requested_slot: fuera_ciudad
+      - type: from_intent
+        intent: negar
+        value: false
+        conditions:
+          - active_loop: formulario_cotizacion
+            requested_slot: fuera_ciudad
+      - type: custom
+
+forms:
+  formulario_cotizacion:
+    required_slots:
+      - tipo_porton
+      - ancho
+      - alto
+      - medidas_confirmadas
+      - accesorios
+      - fuera_ciudad
+
+actions:
+  - validate_formulario_cotizacion
+  - action_ask_medidas_confirmadas
+  - action_ask_accesorios
+  - action_ask_fuera_ciudad
+  - action_mostrar_catalogo
+  - action_cotizar
+  - action_reiniciar_cotizacion
+
+# Trato de "usted". En WhatsApp, *texto* se muestra en negrita.
+# Los títulos de botón tienen como máximo 20 caracteres (límite de WhatsApp).
+responses:
+  utter_saludo:
+    - text: "¡Hola! Soy el asistente virtual de *MACHOBOL*. Fabricamos portones y parques infantiles de madera. ¿En qué le puedo ayudar?"
+      buttons:
+        - title: "Cotizar portón"
+          payload: "/cotizar_porton"
+        - title: "Ver productos"
+          payload: "/consultar_productos"
+        - title: "Hablar con asesor"
+          payload: "/hablar_con_asesor"
+
+  utter_menu:
+    - text: "¿En qué más le puedo ayudar?"
+      buttons:
+        - title: "Cotizar portón"
+          payload: "/cotizar_porton"
+        - title: "Ver productos"
+          payload: "/consultar_productos"
+        - title: "Hablar con asesor"
+          payload: "/hablar_con_asesor"
+
+  utter_despedida:
+    - text: "¡Gracias por escribir a MACHOBOL! Aquí estaré cuando me necesite."
+
+  utter_no_entendi:
+    - text: "Disculpe, no le entendí. Puedo cotizarle un portón, mostrarle nuestros productos o comunicarle con un asesor."
+      buttons:
+        - title: "Cotizar portón"
+          payload: "/cotizar_porton"
+        - title: "Ver productos"
+          payload: "/consultar_productos"
+        - title: "Hablar con asesor"
+          payload: "/hablar_con_asesor"
+
+  utter_no_entendi_formulario:
+    - text: "Disculpe, no le entendí."
+
+  utter_derivar_asesor:
+    - text: "Con gusto. Un asesor de MACHOBOL le escribirá por este mismo chat lo antes posible."
+
+  utter_estado_pedido:
+    - text: "Muy pronto podrá consultar aquí el avance de su pedido. Mientras tanto, un asesor le informará el estado por este mismo chat."
+
+  utter_ask_tipo_porton:
+    - text: "¿Qué tipo de portón necesita? El *corredizo* se desliza sobre un riel y el *batiente* se abre en una o dos hojas."
+      buttons:
+        - title: "Corredizo"
+          payload: '/elegir_tipo_porton{"tipo_porton": "corredizo"}'
+        - title: "Batiente"
+          payload: '/elegir_tipo_porton{"tipo_porton": "batiente"}'
+
+  utter_tipo_porton_invalido:
+    - text: "Fabricamos portones corredizos y batientes."
+
+  utter_ask_ancho:
+    - text: "¿Qué medidas tiene el espacio del portón? Indíqueme el ancho y el alto en metros, por ejemplo: *4 x 2,20* (ancho × alto)."
+
+  utter_ask_alto:
+    - text: "¿Y cuánto mide de alto? Por ejemplo: 2,20 m."
+
+  utter_corregir_medidas:
+    - text: "De acuerdo, corrijamos las medidas."
+
+  utter_accesorio_desconocido:
+    - text: "Por ahora ofrecemos como accesorios el motor y la puerta de ingreso peatonal."
+
+  utter_cotizacion_cancelada:
+    - text: "Entendido, dejamos la cotización aquí. Cuando quiera retomarla, escríbame «cotizar portón»."
+
+  utter_algo_mas:
+    - text: "¿Le puedo ayudar en algo más?"
+      buttons:
+        - title: "Sí"
+          payload: "/confirmar"
+        - title: "No, gracias"
+          payload: "/negar"
+
+  utter_error_backend:
+    - text: "Tuve un problema técnico al consultar nuestro sistema. Un asesor le escribirá en breve por este chat."
+
+session_config:
+  # Tras 2 horas sin mensajes empieza una conversación nueva, sin datos de la anterior.
+  session_expiration_time: 120
+  carry_over_slots_to_new_session: false

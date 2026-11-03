@@ -13,7 +13,9 @@
     "db:rollback": "node-pg-migrate down -m src/db/migrations",
     "db:reset": "node-pg-migrate down 0 -m src/db/migrations && npm run db:migrate && npm run db:seed",
     "db:migration:create": "node-pg-migrate create -m src/db/migrations --migration-file-language sql",
-    "db:seed": "node src/db/seeds/run.js"
+    "db:seed": "node src/db/seeds/run.js",
+    "whatsapp:simular": "node scripts/simular-whatsapp.js",
+    "tunel": "cloudflared tunnel --url http://localhost:4000"
   },
   "engines": {
     "node": ">=20"

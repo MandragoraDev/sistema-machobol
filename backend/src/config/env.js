@@ -10,9 +10,24 @@ function requerida(nombre) {
   return valor;
 }
 
-const jwtSecret = requerida('JWT_SECRET');
-if (jwtSecret.length < 32) {
-  throw new Error('JWT_SECRET debe tener al menos 32 caracteres.');
+function secreto(nombre) {
+  const valor = requerida(nombre);
+  if (valor.length < 32) {
+    throw new Error(`${nombre} debe tener al menos 32 caracteres.`);
+  }
+  return valor;
+}
+
+const whatsapp = {
+  verifyToken: requerida('WHATSAPP_VERIFY_TOKEN'),
+  appSecret: requerida('WHATSAPP_APP_SECRET'),
+  // Sin token de acceso, las respuestas del bot no se envían a Meta: solo se registran (modo simulado).
+  accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
+  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+  graphVersion: process.env.WHATSAPP_GRAPH_VERSION || 'v24.0',
+};
+if (Boolean(whatsapp.accessToken) !== Boolean(whatsapp.phoneNumberId)) {
+  throw new Error('Define WHATSAPP_ACCESS_TOKEN y WHATSAPP_PHONE_NUMBER_ID juntos (o ninguno, para el modo simulado).');
 }
 
 module.exports = {
@@ -21,6 +36,10 @@ module.exports = {
   databaseUrl: requerida('DATABASE_URL'),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   logLevel: process.env.LOG_LEVEL || 'info',
-  jwtSecret,
+  jwtSecret: secreto('JWT_SECRET'),
   jwtExpiraEn: process.env.JWT_EXPIRES_IN || '8h',
+  // Secreto compartido con el servidor de acciones de Rasa (header X-Service-Token).
+  serviceToken: secreto('SERVICE_TOKEN'),
+  rasaUrl: (process.env.RASA_URL || 'http://localhost:5005').replace(/\/+$/, ''),
+  whatsapp,
 };

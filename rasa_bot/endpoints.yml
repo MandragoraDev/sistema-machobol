@@ -1,0 +1,6 @@
+# Servidor de acciones (rasa run actions). Solo escucha en 127.0.0.1: ver actions/__init__.py.
+action_endpoint:
+  url: "http://localhost:5055/webhook"
+
+# Sin tracker_store: las conversaciones viven en memoria y se pierden al reiniciar Rasa.
+# El historial completo queda igualmente en la tabla mensajes_whatsapp del backend.

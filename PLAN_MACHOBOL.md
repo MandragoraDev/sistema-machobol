@@ -1,6 +1,6 @@
 # PLAN_MACHOBOL — Sistema Web Integral y Asistente Virtual
 
-> Versión 1.2 · 2026-11-02 · Estado: **aprobado** · Sprint 1 completado · Moneda única: **bolivianos (Bs)**
+> Versión 1.3 · 2026-11-03 · Estado: **aprobado** · Sprints 1 y 2 completados · Moneda única: **bolivianos (Bs)**
 > Forma de trabajo: un sprint a la vez, con punto de confirmación al cierre de cada uno.
 
 ---
@@ -281,7 +281,7 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 2 — Seguridad JWT, autenticación y CRUD de Inventario / Dashboard 🟡 (implementado el 2026-11-03, pendiente de confirmación)
+### Sprint 2 — Seguridad JWT, autenticación y CRUD de Inventario / Dashboard ✅ (2026-11-03)
 
 **Objetivo:** acceso seguro por rol y gestión completa de la madera desde el panel.
 
@@ -304,6 +304,7 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 - 41 pruebas Jest: 37 de integración contra PostgreSQL real (`machobol_test`) y 4 sin BD.
 - 24 comprobaciones en el navegador (Edge) con los tres roles: redirecciones, menús, conversión en vivo, registro de troca y ajuste, alta de usuarios, cierre de sesión y token manipulado.
 - La base de desarrollo no se tocó durante las pruebas.
+- Pruebas manuales del equipo superadas; confirmado el 2026-11-03.
 
 **Criterios de aceptación:**
 - Un usuario Taller recibe 403 en `/api/usuarios`.
@@ -312,27 +313,44 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 3 — Rasa: intents, entidades y webhooks de WhatsApp
+### Sprint 3 — Rasa: intents, entidades y webhooks de WhatsApp 🟡 (implementado el 2026-11-03, pendiente de confirmación)
 
 **Objetivo:** recibir mensajes reales de WhatsApp, entenderlos con Rasa y responder.
 
-- [ ] Entorno Python 3.10 aislado (`venv`) con Rasa Open Source 3.6 y `rasa-sdk`. Idioma `es`.
-- [ ] Pipeline NLU: `WhitespaceTokenizer`, `RegexFeaturizer`, `LexicalSyntacticFeaturizer`, `CountVectorsFeaturizer` (palabra y `char_wb`), `DIETClassifier`, `EntitySynonymMapper`, `FallbackClassifier`.
-- [ ] Intents: `saludar`, `despedir`, `consultar_productos`, `cotizar_porton`, `informar_medidas`, `elegir_tipo_porton`, `agregar_accesorio`, `confirmar`, `negar`, `consultar_estado_pedido`, `hablar_con_asesor`.
-- [ ] Entidades:
-  - `tipo_porton`, con sinónimos (corredero → corredizo; abatible → batiente).
-  - `alto` y `ancho`, con regex que acepta "2,20", "2.20 m" y "4 x 2".
-  - `accesorio` y `codigo_pedido`.
-- [ ] Formulario `formulario_cotizacion` (tipo, alto, ancho, accesorios y si la entrega es fuera de la ciudad). El bot **confirma las medidas** antes de cotizar ("¿Alto 2.20 m y ancho 4.00 m?").
-- [ ] Servidor de acciones con `action_cotizar` conectado a un endpoint simulado (la versión real llega en el Sprint 4).
-- [ ] Backend, módulo `whatsapp`:
-  - `GET` de verificación (`hub.verify_token`).
-  - `POST` con validación HMAC sobre el cuerpo crudo, respuesta 200 inmediata y procesamiento asíncrono.
-  - Deduplicación por `wa_message_id`, alta automática de `clientes`.
-  - Reenvío a Rasa y respuesta por Graph API.
-- [ ] Autenticación servicio a servicio (Rasa → backend) mediante el header `X-Service-Token`.
-- [ ] Script simulador que envía *payloads* de Meta falsos, para probar sin depender del túnel.
-- [ ] Túnel HTTPS de desarrollo (cloudflared o ngrok) y número de prueba de Meta.
+- [x] Entorno Python 3.10 aislado (`rasa_bot/.venv`) con Rasa Open Source 3.6.21 y `rasa-sdk` 3.6.2 (TensorFlow 2.12, CPU). Idioma `es`.
+- [x] Pipeline NLU: `WhitespaceTokenizer`, `RegexFeaturizer`, `LexicalSyntacticFeaturizer`, `CountVectorsFeaturizer` (palabra y `char_wb`), `DIETClassifier`, `EntitySynonymMapper`, `FallbackClassifier` (umbral 0.4).
+- [x] Intents: `saludar`, `despedir`, `consultar_productos`, `cotizar_porton`, `informar_medidas`, `elegir_tipo_porton`, `agregar_accesorio`, `confirmar`, `negar`, `consultar_estado_pedido`, `hablar_con_asesor`.
+- [x] Entidades:
+  - `tipo_porton`, con sinónimos (corredero, corrediza, deslizante, de riel → corredizo; abatible, de dos hojas → batiente).
+  - `alto` y `ancho`, con regex que acepta "2,20", "2.20 m" y "4 x 2". Además, las acciones leen de forma determinista lo que DIET no separa ("4x2,20", "dos por dos y medio", "220 cm").
+  - `accesorio` (motor, puerta de ingreso) y `codigo_pedido` (`MCH-AAAA-NNNN`).
+- [x] Formulario `formulario_cotizacion` (tipo, ancho, alto, confirmación de medidas, accesorios y si la entrega es fuera de la ciudad). El bot **confirma las medidas** antes de seguir ("portón corredizo de 4,00 m de ancho × 2,20 m de alto (8,80 m²). ¿Las medidas son correctas?"); si el cliente las corrige, vuelve a confirmarlas.
+- [x] Servidor de acciones con `action_cotizar` conectado a un endpoint simulado (la versión real llega en el Sprint 4). Las preguntas de accesorios y de entrega muestran los precios reales del catálogo (motor según el tipo de portón, recargo de 150 Bs).
+- [x] Backend, módulo `whatsapp`:
+  - `GET /api/webhooks/whatsapp` de verificación (`hub.verify_token`, comparado en tiempo constante).
+  - `POST` con validación HMAC-SHA256 sobre el cuerpo crudo (401 si no coincide), respuesta 200 en cuanto el mensaje queda registrado y procesamiento asíncrono (en orden por cliente).
+  - Deduplicación por `wa_message_id` (`ON CONFLICT DO NOTHING` sobre el índice único) y alta automática de `clientes` con el nombre de perfil.
+  - Reenvío a Rasa y respuesta por Graph API: los botones de Rasa se convierten en botones o listas de WhatsApp. Sin credenciales de Meta funciona en **modo simulado** (nada sale hacia Meta).
+  - Audios e imágenes reciben "solo puedo leer texto"; si Rasa no responde, el cliente recibe un aviso de que lo atenderá un asesor.
+- [x] Autenticación servicio a servicio (Rasa → backend) mediante el header `X-Service-Token` en `/api/internal/*` (`GET /catalogo`, `POST /cotizaciones`). El header se oculta en los logs.
+- [x] Script simulador (`npm run whatsapp:simular`) que envía *payloads* de Meta firmados, para probar sin depender del túnel.
+- [ ] Túnel HTTPS de desarrollo y número de prueba de Meta: documentado (`npm run tunel` con cloudflared, pasos en el README). Falta crear la app de Meta y cargar sus credenciales en `backend/.env`.
+
+**Verificación realizada:**
+- `rasa data validate`: sin errores ni conflictos (7 avisos esperados de respuestas que usan el formulario y las acciones).
+- `rasa test nlu` con validación cruzada de 5 particiones: F1 ponderado de intents **0.924** (mínimo 0.85; el más bajo, `confirmar`, 0.81).
+  Entidades: 0.879 en total. `ancho` y `alto` quedan en 0.74 con DIET solo; por eso las acciones vuelven a leer las medidas
+  con el lector determinista, y en las pruebas de punta a punta el bot termina con las medidas correctas en todos los casos.
+- "quiero un portón corredizo de 4 por 2,20" → `cotizar_porton` (confianza 1.00), `tipo_porton=corredizo`, `ancho=4`, `alto=2,20`.
+- 78 pruebas Jest (37 nuevas: firma, verificación, deduplicación concurrente, alta de clientes, conversión de mensajes, Graph API simulada, token de servicio) y 11 pruebas Python del lector de medidas.
+- 26 comprobaciones de punta a punta con los servidores reales (webhook firmado → API → Rasa → acciones → API interna → BD): cotización completa con botones, paso a paso con corrección de medidas, interrupciones, cancelación, audio, deduplicación y firma inválida.
+
+**Decisiones tomadas en este sprint:**
+- El bot trata al cliente de "usted". Los textos están en `rasa_bot/domain.yml`.
+- Medidas sin etiqueta ("4 por 2,20"): la primera es el ancho y la segunda el alto; el bot siempre las confirma. Rango de cordura en el bot: 0,30–20 m (los límites comerciales los valida el backend en el Sprint 4).
+- El recargo de transporte no lo pide el bot por código: envía `fuera_ciudad` y el backend decide.
+- Rasa y el servidor de acciones escuchan solo en `127.0.0.1`; Rasa corre sin `--enable-api`.
+- Las conversaciones de Rasa viven en memoria; el historial completo queda en `mensajes_whatsapp`.
 
 **Criterios de aceptación:**
 - `rasa data validate` sin errores; `rasa test nlu` con F1 de intents ≥ 0.85.
@@ -397,10 +415,10 @@ Detectado en esta máquina (Windows 10) el 2026-11-02:
 |---|---|---|
 | Node.js ≥ 20 | ✅ v24.18.0 (npm 11.16.0) | — |
 | PostgreSQL 16+ | ✅ PostgreSQL 16.15 (servicio `postgresql-x64-16`, puerto 5432) | — |
-| Python 3.10 (Rasa) | ⚠️ Solo está Python 3.14; Rasa 3.x requiere 3.8–3.10 | Instalar Python 3.10 junto al 3.14 (`py -3.10`) antes del Sprint 3 |
+| Python 3.10 (Rasa) | ✅ Python 3.10.11 junto al 3.14; Rasa en `rasa_bot/.venv` | — |
 | Docker | ❌ No instalado | Opcional; el plan no lo requiere |
-| Túnel HTTPS (cloudflared / ngrok) | — | Necesario en el Sprint 3 para el webhook de Meta |
-| App de Meta + número de prueba de WhatsApp | — | Necesario en el Sprint 3 |
+| Túnel HTTPS (cloudflared) | ❌ No instalado | `winget install --id Cloudflare.cloudflared` cuando se configure Meta |
+| App de Meta + número de prueba de WhatsApp | — | Crear la app y cargar App Secret, token y Phone Number ID en `backend/.env` |
 
 ---
 

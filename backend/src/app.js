@@ -12,7 +12,8 @@ const app = express();
 app.use(pinoHttp({ logger }));
 app.use(helmet());
 app.use(cors({ origin: env.corsOrigin }));
-app.use(express.json({ limit: '1mb' }));
+// Se conserva el cuerpo crudo: la firma de los webhooks de Meta se calcula sobre los bytes exactos recibidos.
+app.use(express.json({ limit: '1mb', verify: (req, res, cuerpo) => { req.cuerpoCrudo = cuerpo; } }));
 
 app.use('/api', routes);
 

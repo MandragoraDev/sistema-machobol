@@ -1,0 +1,37 @@
+# Modelo del asistente de MACHOBOL (PLAN §4, Sprint 3).
+recipe: default.v1
+language: es
+assistant_id: machobol-asistente
+
+pipeline:
+  - name: WhitespaceTokenizer
+  - name: RegexFeaturizer
+    case_sensitive: false
+  - name: LexicalSyntacticFeaturizer
+  - name: CountVectorsFeaturizer
+  # n-gramas de caracteres: toleran faltas de ortografía y palabras sin tilde ("porton", "si").
+  - name: CountVectorsFeaturizer
+    analyzer: char_wb
+    min_ngram: 1
+    max_ngram: 4
+  - name: DIETClassifier
+    epochs: 100
+    constrain_similarities: true
+    random_seed: 42
+  - name: EntitySynonymMapper
+  # Si la confianza del intent es baja, se predice `nlu_fallback` y el bot pide que se reformule.
+  - name: FallbackClassifier
+    threshold: 0.4
+    ambiguity_threshold: 0.1
+
+policies:
+  - name: MemoizationPolicy
+  - name: RulePolicy
+    core_fallback_threshold: 0.3
+    core_fallback_action_name: action_default_fallback
+    enable_fallback_prediction: true
+  - name: TEDPolicy
+    max_history: 5
+    epochs: 100
+    constrain_similarities: true
+    random_seed: 42
