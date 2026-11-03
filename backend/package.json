@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "jest",
+    "test": "jest --runInBand",
     "db:setup": "node src/db/scripts/setup.js",
     "db:migrate": "node-pg-migrate up -m src/db/migrations",
     "db:rollback": "node-pg-migrate down -m src/db/migrations",
@@ -23,11 +23,14 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
     "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^9.0.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
-    "pino-http": "^11.0.0"
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "jest": "^30.5.2",
@@ -35,6 +38,10 @@
     "supertest": "^7.3.1"
   },
   "jest": {
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/tests/setup/env.js"
+    ],
+    "globalSetup": "<rootDir>/tests/setup/globalSetup.js"
   }
 }

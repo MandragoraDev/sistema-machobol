@@ -2,11 +2,10 @@
  * Carga los datos base del sistema. Es idempotente: se puede ejecutar varias veces
  * y nunca sobrescribe lo que el Admin haya editado (ON CONFLICT DO NOTHING).
  * Todo corre en una sola transacción: o se cargan todos los datos o ninguno.
+ * Las pruebas reutilizan `sembrar` para dejar la base de pruebas en el mismo estado inicial.
  */
-const bcrypt = require('bcrypt');
 const { pool, withTransaction } = require('../../config/db');
-
-const BCRYPT_COSTO = 12;
+const { hashearPassword } = require('../../modules/usuarios/usuarios.service');
 
 const CATEGORIAS = [
   { nombre: 'Portones', descripcion: 'Portones de madera cotizados por m².' },
@@ -115,7 +114,7 @@ async function sembrar(client, admin) {
     );
   }
 
-  const passwordHash = await bcrypt.hash(admin.password, BCRYPT_COSTO);
+  const passwordHash = await hashearPassword(admin.password);
   const { rowCount } = await client.query(
     `INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES ($1, $2, $3, 'ADMIN')
      ON CONFLICT (email) DO NOTHING`,
@@ -131,9 +130,13 @@ async function main() {
   console.log(adminCreado ? `Usuario Admin creado: ${admin.email}` : `El usuario ${admin.email} ya existía; no se modificó.`);
 }
 
-main()
-  .catch((err) => {
-    console.error(`Error en el seed: ${err.message}`);
-    process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+if (require.main === module) {
+  main()
+    .catch((err) => {
+      console.error(`Error en el seed: ${err.message}`);
+      process.exitCode = 1;
+    })
+    .finally(() => pool.end());
+}
+
+module.exports = { sembrar };

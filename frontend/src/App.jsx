@@ -1,11 +1,13 @@
-import AppLayout from './layouts/AppLayout.jsx';
-import DashboardPage from './features/dashboard/DashboardPage.jsx';
+import { BrowserRouter } from 'react-router';
+import { AuthProvider } from './features/auth/AuthContext.jsx';
+import AppRoutes from './routes/AppRoutes.jsx';
 
-// Sprint 2 reemplaza esto por el enrutador con login y rutas protegidas por rol.
 export default function App() {
   return (
-    <AppLayout>
-      <DashboardPage />
-    </AppLayout>
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }

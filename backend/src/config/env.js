@@ -10,10 +10,17 @@ function requerida(nombre) {
   return valor;
 }
 
+const jwtSecret = requerida('JWT_SECRET');
+if (jwtSecret.length < 32) {
+  throw new Error('JWT_SECRET debe tener al menos 32 caracteres.');
+}
+
 module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT) || 4000,
   databaseUrl: requerida('DATABASE_URL'),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   logLevel: process.env.LOG_LEVEL || 'info',
+  jwtSecret,
+  jwtExpiraEn: process.env.JWT_EXPIRES_IN || '8h',
 };

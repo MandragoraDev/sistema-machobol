@@ -281,23 +281,29 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 2 — Seguridad JWT, autenticación y CRUD de Inventario / Dashboard
+### Sprint 2 — Seguridad JWT, autenticación y CRUD de Inventario / Dashboard 🟡 (implementado el 2026-11-03, pendiente de confirmación)
 
 **Objetivo:** acceso seguro por rol y gestión completa de la madera desde el panel.
 
-- [ ] `POST /api/auth/login`: bcrypt (costo 12), JWT HS256 de 8 h, enviado como `Authorization: Bearer`.
-- [ ] `GET /api/auth/me`; middlewares `authenticate` y `authorize(...roles)`.
-- [ ] Límite de intentos en el login (`express-rate-limit`); validación de entrada con `zod`.
-- [ ] CRUD de usuarios (solo Admin). El hash nunca se devuelve ni se registra en logs.
-- [ ] Inventario:
-  - `GET /api/inventario` (stock y alerta de mínimo).
-  - `POST /api/inventario/ingresos` (troca → m², en transacción, con su movimiento).
-  - `POST /api/inventario/ajustes` (Admin, motivo obligatorio).
-  - `GET /api/inventario/movimientos` (paginado y filtrable).
-- [ ] React: login, rutas protegidas por rol y layout con barra lateral.
-- [ ] Pantalla Inventario con formulario de ingreso que **muestra la conversión a m² en vivo**.
-- [ ] Dashboard (primera versión): stock total en m², maderas bajo mínimo y últimos movimientos. Se amplía en el Sprint 5 con pedidos y ventas.
-- [ ] Pruebas (Jest + Supertest): conversión troca → m², login, 401 sin token, 403 por rol.
+- [x] `POST /api/auth/login`: bcrypt (costo 12), JWT HS256 de 8 h (payload: `sub`, `nombre`, `rol`), enviado como `Authorization: Bearer`.
+- [x] `GET /api/auth/me`; middlewares `authenticate` y `authorize(...roles)`. `authenticate` también comprueba en la BD que el usuario siga activo: desactivar a alguien corta su sesión al instante.
+- [x] Límite de 10 intentos fallidos por IP cada 15 min (`express-rate-limit`); validación de entrada con `zod`; el header `Authorization` se oculta en los logs.
+- [x] CRUD de usuarios (solo Admin, API + pantalla). El hash nunca se devuelve ni se registra en logs; el Admin no puede desactivarse ni quitarse el rol.
+- [x] Inventario:
+  - `GET /api/inventario` (stock, alerta de mínimo y resumen).
+  - `POST /api/inventario` y `PATCH /api/inventario/:id` (catálogo de maderas, solo Admin; el stock no se edita aquí).
+  - `POST /api/inventario/ingresos` (Admin y Taller: troca → m² exacto con BigInt, en transacción con `SELECT … FOR UPDATE`, con su movimiento).
+  - `POST /api/inventario/ajustes` (Admin, motivo obligatorio; si dejaría el stock negativo, 409 sin modificar nada).
+  - `GET /api/inventario/movimientos` (paginado y filtrable por madera y tipo).
+- [x] React: `/login` como vista raíz (no hay web pública), rutas protegidas, menú lateral oculto hasta iniciar sesión y filtrado por el rol del token.
+- [x] Pantalla Inventario con formulario de ingreso que **muestra la conversión a m² en vivo** (misma función que la API).
+- [x] Dashboard por rol: Admin (resumen, alertas, últimos movimientos y estado del sistema), Taller (resumen, alertas, movimientos y acceso directo a registrar troca), Ventas (stock disponible, sin acciones).
+- [x] Pruebas (Jest + Supertest): conversión troca → m², login, 401 sin token o con token inválido/expirado, 403 por rol, ajuste negativo, rate limit.
+
+**Verificación realizada:**
+- 41 pruebas Jest: 37 de integración contra PostgreSQL real (`machobol_test`) y 4 sin BD.
+- 24 comprobaciones en el navegador (Edge) con los tres roles: redirecciones, menús, conversión en vivo, registro de troca y ajuste, alta de usuarios, cierre de sesión y token manipulado.
+- La base de desarrollo no se tocó durante las pruebas.
 
 **Criterios de aceptación:**
 - Un usuario Taller recibe 403 en `/api/usuarios`.

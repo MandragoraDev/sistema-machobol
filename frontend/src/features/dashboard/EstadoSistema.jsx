@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { apiGet } from '../../api/client.js';
+import { api } from '../../api/client.js';
+import { Boton, Tarjeta } from '../../components/ui.jsx';
 
 const ESTILOS = {
   verificando: { texto: 'Verificando…', clase: 'bg-stone-200 text-stone-600' },
@@ -23,7 +24,7 @@ export default function EstadoSistema() {
   const verificar = useCallback(async () => {
     setEstado({ api: 'verificando', db: 'verificando', hora: null });
     try {
-      await apiGet('/health');
+      await api('/health');
       setEstado({ api: 'ok', db: 'ok', hora: new Date() });
     } catch (err) {
       // 503: la API responde pero PostgreSQL no. Cualquier otro error: la API no responde.
@@ -37,24 +38,21 @@ export default function EstadoSistema() {
   }, [verificar]);
 
   return (
-    <section className="rounded-lg border border-primary/15 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-primary">Estado del sistema</h2>
-        <button
-          type="button"
-          onClick={verificar}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-surface hover:bg-primary/90"
-        >
+    <Tarjeta
+      titulo="Estado del sistema"
+      acciones={
+        <Boton variante="secundario" onClick={verificar} className="px-3 py-1.5">
           Volver a verificar
-        </button>
-      </div>
-      <div className="mt-4 divide-y divide-stone-200">
+        </Boton>
+      }
+    >
+      <div className="divide-y divide-stone-200">
         <Indicador etiqueta="API REST (Node.js + Express)" estado={estado.api} />
         <Indicador etiqueta="Base de datos (PostgreSQL)" estado={estado.db} />
       </div>
       {estado.hora && (
         <p className="mt-3 text-xs text-stone-500">Última verificación: {estado.hora.toLocaleTimeString('es-BO')}</p>
       )}
-    </section>
+    </Tarjeta>
   );
 }

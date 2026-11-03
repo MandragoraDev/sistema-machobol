@@ -1,5 +1,3 @@
-process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
-
 jest.mock('../src/config/db', () => ({ query: jest.fn() }));
 
 const request = require('supertest');
