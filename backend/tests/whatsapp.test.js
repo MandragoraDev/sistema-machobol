@@ -6,7 +6,9 @@ const env = require('../src/config/env');
 const rasa = require('../src/modules/whatsapp/whatsapp.rasa');
 const { firmar } = require('../src/modules/whatsapp/whatsapp.firma');
 const { esperarPendientes } = require('../src/utils/segundoPlano');
-const { db, describeConBD, reiniciarBD } = require('./helpers/bd');
+const pedidosService = require('../src/modules/pedidos/pedidos.service');
+const pagosService = require('../src/modules/pagos/pagos.service');
+const { db, describeConBD, reiniciarBD, crearCliente, fijarStockCedro, idCedro } = require('./helpers/bd');
 
 const WA_ID = '59171234567';
 const URL = '/api/webhooks/whatsapp';
@@ -167,6 +169,49 @@ describeConBD('POST /api/webhooks/whatsapp: procesamiento', () => {
     expect(total).toBe(0);
   });
 
+  describe('adjuntos que pide el asistente (respuesta custom de Rasa)', () => {
+    async function pedidoCon(waId, { conQr = false } = {}) {
+      const cliente = (await db.query('SELECT id FROM clientes WHERE wa_id = $1', [waId])).rows[0] ?? await crearCliente(waId, 'Otro');
+      const { codigo } = await pedidosService.crearPedido(
+        { tipo_porton: 'CORREDIZO', madera_id: await idCedro(), ancho_m: 4, alto_m: 2.2, accesorios: ['MOTOR_CORREDIZO'], fuera_ciudad: false },
+        { clienteId: cliente.id, canal: 'WHATSAPP' },
+      );
+      if (conQr) await pagosService.crearCobroQr(codigo);
+      return codigo;
+    }
+
+    beforeEach(() => fijarStockCedro(50));
+
+    it('envía la proforma en PDF y el QR de pago como imagen', async () => {
+      await crearCliente(WA_ID);
+      const codigo = await pedidoCon(WA_ID, { conQr: true });
+      rasa.conversar.mockResolvedValue([
+        { text: `Cotización ${codigo}` },
+        { custom: { adjunto: 'proforma', pedido: codigo } },
+        { custom: { adjunto: 'qr_pago', pedido: codigo } },
+      ]);
+
+      await enviar(notificacion());
+      await esperarPendientes();
+
+      const [texto, documento, imagen] = (await mensajes('OUT')).map((m) => m.contenido);
+      expect(texto.text.body).toBe(`Cotización ${codigo}`);
+      expect(documento).toEqual({ type: 'document', document: { filename: `Proforma ${codigo}.pdf`, caption: `Proforma ${codigo}` } });
+      expect(imagen).toEqual({ type: 'image', image: { caption: `QR de pago del pedido ${codigo}: 23.476,00 Bs` } });
+    });
+
+    it('no adjunta documentos de pedidos de otro cliente', async () => {
+      const ajeno = await pedidoCon('59179999999');
+      rasa.conversar.mockResolvedValue([{ custom: { adjunto: 'proforma', pedido: ajeno } }]);
+
+      await enviar(notificacion());
+      await esperarPendientes();
+
+      const [saliente] = await mensajes('OUT');
+      expect(saliente.contenido).toEqual({ type: 'text', text: { body: 'No pude adjuntar el documento. Un asesor se lo enviará en breve.', preview_url: false } });
+    });
+  });
+
   describe('con credenciales de Meta (envío real a la Graph API)', () => {
     let fetchOriginal;
     beforeEach(() => {
@@ -194,6 +239,30 @@ describeConBD('POST /api/webhooks/whatsapp: procesamiento', () => {
       expect((await mensajes('OUT'))[0].wa_message_id).toBe('wamid.SALIENTE');
     });
 
+    it('los adjuntos se suben primero como media y se envían con su id', async () => {
+      await fijarStockCedro(50);
+      const cliente = await crearCliente(WA_ID);
+      const { codigo } = await pedidosService.crearPedido(
+        { tipo_porton: 'BATIENTE', madera_id: await idCedro(), ancho_m: 3, alto_m: 2, accesorios: [], fuera_ciudad: true },
+        { clienteId: cliente.id, canal: 'WHATSAPP' },
+      );
+      rasa.conversar.mockResolvedValue([{ custom: { adjunto: 'proforma', pedido: codigo } }]);
+      global.fetch = jest.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'MEDIA-123' }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ messages: [{ id: 'wamid.DOC' }] }), { status: 200 }));
+
+      await enviar(notificacion());
+      await esperarPendientes();
+
+      const [[urlMedia, subida], [urlMensaje, envio]] = global.fetch.mock.calls;
+      expect(urlMedia).toMatch(/\/1234567890\/media$/);
+      expect(subida.body.get('type')).toBe('application/pdf');
+      expect(subida.body.get('file').name).toBe(`Proforma ${codigo}.pdf`);
+      expect(urlMensaje).toMatch(/\/1234567890\/messages$/);
+      expect(JSON.parse(envio.body).document).toEqual({ filename: `Proforma ${codigo}.pdf`, caption: `Proforma ${codigo}`, id: 'MEDIA-123' });
+      expect((await mensajes('OUT'))[0].wa_message_id).toBe('wamid.DOC');
+    });
+
     it('si Meta rechaza el envío, el mensaje queda registrado con el error', async () => {
       rasa.conversar.mockResolvedValue([{ text: 'Hola' }]);
       global.fetch = jest.fn().mockResolvedValue(
@@ -205,7 +274,7 @@ describeConBD('POST /api/webhooks/whatsapp: procesamiento', () => {
 
       const [saliente] = await mensajes('OUT');
       expect(saliente.wa_message_id).toBeNull();
-      expect(saliente.contenido.error).toBe('Graph API 401: Invalid OAuth access token');
+      expect(saliente.contenido.error).toBe('Graph API messages 401: Invalid OAuth access token');
     });
   });
 });

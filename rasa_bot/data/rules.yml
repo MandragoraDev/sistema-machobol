@@ -68,6 +68,12 @@ rules:
       - action: formulario_cotizacion
       - active_loop: formulario_cotizacion
 
+  - rule: Madera suelta inicia la cotización
+    steps:
+      - intent: elegir_madera
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
   - rule: Cotizar al completar el formulario
     condition:
       - active_loop: formulario_cotizacion
@@ -77,6 +83,18 @@ rules:
       - slot_was_set:
           - requested_slot: null
       - action: action_cotizar
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Responder a la confirmación del pedido (QR o pedido guardado)
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - action: formulario_confirmar_pedido
+      - active_loop: null
+      - slot_was_set:
+          - requested_slot: null
+      - action: action_procesar_confirmacion_pedido
       - action: utter_algo_mas
 
   # --- Cotización: el mensaje no completa el dato pedido ----------------------------------
@@ -123,6 +141,15 @@ rules:
       - active_loop: formulario_cotizacion
     steps:
       - intent: agregar_accesorio
+      - action: utter_no_entendi_formulario
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Madera no reconocida durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: elegir_madera
       - action: utter_no_entendi_formulario
       - action: formulario_cotizacion
       - active_loop: formulario_cotizacion
@@ -189,6 +216,110 @@ rules:
     steps:
       - intent: hablar_con_asesor
       - action: utter_derivar_asesor
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion
+
+  # --- Confirmación del pedido: el mensaje no responde "sí" o "no" ------------------------
+  - rule: Mensaje no entendido durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: nlu_fallback
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Saludo durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: saludar
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Medidas durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: informar_medidas
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Tipo de portón durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: elegir_tipo_porton
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Accesorio durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: agregar_accesorio
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Madera durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: elegir_madera
+      - action: utter_no_entendi_formulario
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Catálogo durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: consultar_productos
+      - action: action_mostrar_catalogo
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Estado del pedido durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: consultar_estado_pedido
+      - action: utter_estado_pedido
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Nueva cotización en lugar de confirmar
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: cotizar_porton
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Asesor durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: hablar_con_asesor
+      - action: utter_derivar_asesor
+      - action: action_deactivate_loop
+      - active_loop: null
+      - action: action_reiniciar_cotizacion
+
+  - rule: Despedida durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: despedir
+      - action: utter_despedida
       - action: action_deactivate_loop
       - active_loop: null
       - action: action_reiniciar_cotizacion

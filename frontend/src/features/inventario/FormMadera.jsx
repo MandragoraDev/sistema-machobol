@@ -3,7 +3,15 @@ import { api } from '../../api/client.js';
 import { Boton, Campo, ErrorApi, Tarjeta, claseInput } from '../../components/ui.jsx';
 import { nombreMadera } from '../../utils/formato.js';
 
-/** Alta o edición de un tipo de madera (solo Admin). El stock no se edita aquí. */
+const TIPOS_PORTON = [
+  { tipo: 'CORREDIZO', etiqueta: 'Precio portón corredizo (Bs/m²)' },
+  { tipo: 'BATIENTE', etiqueta: 'Precio portón batiente (Bs/m²)' },
+];
+
+/**
+ * Alta o edición de un tipo de madera (solo Admin), con su precio por m² para cada tipo de portón.
+ * Sin precio, la madera no se ofrece para ese tipo de portón. El stock no se edita aquí.
+ */
 export default function FormMadera({ madera, onGuardado, onCancelar }) {
   const editando = Boolean(madera);
   const [form, setForm] = useState({
@@ -11,6 +19,7 @@ export default function FormMadera({ madera, onGuardado, onCancelar }) {
     espesor_pulg: madera ? String(Number(madera.espesor_pulg)) : '',
     stock_minimo_m2: madera ? String(Number(madera.stock_minimo_m2)) : '0',
     activo: madera?.activo ?? true,
+    ...Object.fromEntries(TIPOS_PORTON.map(({ tipo }) => [tipo, madera?.precios?.[tipo] ? String(Number(madera.precios[tipo])) : ''])),
   });
   const [error, setError] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -27,8 +36,13 @@ export default function FormMadera({ madera, onGuardado, onCancelar }) {
       stock_minimo_m2: Number(form.stock_minimo_m2),
       ...(editando && { activo: form.activo }),
     };
+    // Vacío = sin precio (la madera no se ofrece para ese tipo de portón). Un valor inválido lo rechaza la API.
+    const precios = Object.fromEntries(
+      TIPOS_PORTON.map(({ tipo }) => [tipo, form[tipo].trim() === '' ? null : Number(form[tipo])]),
+    );
     try {
-      await api(editando ? `/inventario/${madera.id}` : '/inventario', { method: editando ? 'PATCH' : 'POST', body });
+      const guardada = await api(editando ? `/inventario/${madera.id}` : '/inventario', { method: editando ? 'PATCH' : 'POST', body });
+      await api(`/catalogo/precios/${guardada.id}`, { method: 'PUT', body: precios });
       onGuardado();
     } catch (err) {
       setError(err);
@@ -54,11 +68,20 @@ export default function FormMadera({ madera, onGuardado, onCancelar }) {
           </Campo>
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          {TIPOS_PORTON.map(({ tipo, etiqueta }) => (
+            <Campo key={tipo} etiqueta={etiqueta} ayuda="Déjalo vacío si esta madera no se ofrece para este portón.">
+              <input type="number" inputMode="decimal" min="0.01" step="0.01"
+                value={form[tipo]} onChange={cambiar(tipo)} className={claseInput} />
+            </Campo>
+          ))}
+        </div>
+
         {editando && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.activo}
               onChange={(e) => setForm((actual) => ({ ...actual, activo: e.target.checked }))} />
-            Madera activa (admite ingresos y aparece en los formularios)
+            Madera activa (admite ingresos, aparece en los formularios y se ofrece a los clientes)
           </label>
         )}
 

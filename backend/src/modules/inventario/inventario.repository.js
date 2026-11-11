@@ -4,9 +4,14 @@ const { asignaciones } = require('../../utils/sql');
 const COLUMNAS_MADERA = `id, especie, espesor_pulg, stock_actual_m2, stock_minimo_m2, activo,
   (stock_actual_m2 <= stock_minimo_m2) AS bajo_minimo, actualizado_en`;
 
+/** Incluye los precios por m² de cada madera según el tipo de portón: { CORREDIZO: '2470.00', … }. */
 async function listarMaderas({ incluirInactivas }) {
   const { rows } = await db.query(
-    `SELECT ${COLUMNAS_MADERA} FROM inventario_madera
+    `SELECT ${COLUMNAS_MADERA},
+            (SELECT COALESCE(json_object_agg(pr.tipo_porton, pp.precio_m2::text), '{}'::json)
+             FROM precios_porton pp JOIN productos pr ON pr.id = pp.producto_id
+             WHERE pp.madera_id = inventario_madera.id) AS precios
+     FROM inventario_madera
      ${incluirInactivas ? '' : 'WHERE activo'}
      ORDER BY especie, espesor_pulg`,
   );
@@ -105,12 +110,18 @@ async function listarMovimientos({ madera_id, tipo, pagina, limite }) {
   return { datos: rows, total, pagina, limite };
 }
 
+async function obtenerStock(client, id) {
+  const { rows } = await client.query('SELECT stock_actual_m2 FROM inventario_madera WHERE id = $1', [id]);
+  return rows[0]?.stock_actual_m2 ?? null;
+}
+
 module.exports = {
   listarMaderas,
   resumen,
   crearMadera,
   actualizarMadera,
   bloquearMadera,
+  obtenerStock,
   sumarStock,
   insertarMovimiento,
   listarMovimientos,

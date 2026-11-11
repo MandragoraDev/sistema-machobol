@@ -8,6 +8,8 @@ const router = Router();
 router.use(autenticarServicio);
 
 router.get('/catalogo', controller.catalogo);
+router.get('/maderas', controller.maderas);
 router.post('/cotizaciones', controller.cotizar);
+router.post('/pedidos/:codigo/pago-qr', controller.crearPagoQr);
 
 module.exports = router;

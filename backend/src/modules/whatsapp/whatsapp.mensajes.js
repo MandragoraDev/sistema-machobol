@@ -76,13 +76,17 @@ function interactivo(texto, botones) {
 /**
  * Convierte las respuestas de Rasa en mensajes de WhatsApp: hasta 3 botones → botones de respuesta;
  * hasta 10 → lista desplegable; más → texto con las opciones numeradas.
+ * Una respuesta `custom` con `adjunto` se convierte en `{ type: 'adjunto' }`: el archivo lo arma el servicio.
  */
 function aMensajesWhatsApp(respuestasRasa) {
   const salida = [];
   for (const respuesta of lista(respuestasRasa)) {
     const texto = typeof respuesta?.text === 'string' ? respuesta.text : '';
     const botones = lista(respuesta?.buttons).filter((b) => typeof b?.title === 'string' && typeof b?.payload === 'string');
-    if (typeof respuesta?.image === 'string') {
+    const { adjunto, pedido } = respuesta?.custom ?? {};
+    if (typeof adjunto === 'string' && typeof pedido === 'string') {
+      salida.push({ type: 'adjunto', adjunto: { tipo: adjunto, pedido } });
+    } else if (typeof respuesta?.image === 'string') {
       salida.push({ type: 'image', image: { link: respuesta.image, ...(texto && { caption: recortar(texto, MAX_CUERPO_INTERACTIVO) }) } });
     } else if (botones.length > 0 && botones.length <= MAX_FILAS_LISTA) {
       salida.push(interactivo(texto || 'Elija una opción:', botones));

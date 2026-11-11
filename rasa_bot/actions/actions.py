@@ -10,7 +10,8 @@ from rasa_sdk.executor import CollectingDispatcher
 from rasa_sdk.types import DomainDict
 
 from . import backend
-from .formato import formatear_bs, formatear_metros
+from .formato import formatear_bs, formatear_fecha, formatear_fecha_hora, formatear_m2, formatear_metros
+from .maderas import buscar_madera
 from .medidas import (
     MEDIDA_MAXIMA,
     MEDIDA_MINIMA,
@@ -22,7 +23,8 @@ from .medidas import (
 
 logger = logging.getLogger(__name__)
 
-SLOTS_COTIZACION = ["tipo_porton", "ancho", "alto", "medidas_confirmadas", "accesorios", "fuera_ciudad"]
+SLOTS_COTIZACION = ["tipo_porton", "ancho", "alto", "medidas_confirmadas", "tipo_madera", "madera_id", "accesorios", "fuera_ciudad"]
+SLOTS_PEDIDO = ["pedido_codigo", "pedido_confirmado"]
 
 # Valor canónico de la entidad `accesorio` (sinónimos en data/nlu.yml) → prefijo de su código en el
 # catálogo y título de su botón. Qué accesorio corresponde a cada tipo de portón lo decide el catálogo.
@@ -143,13 +145,43 @@ def _validar_medida(slot: Text, valor: Any, dispatcher: CollectingDispatcher, tr
 
 
 def _precio_producto(producto: Dict[Text, Any]) -> Text:
-    if producto["modo_precio"] == "POR_M2":
-        return f"{formatear_bs(producto['precio_m2'])} Bs/m²"
-    return f"{formatear_bs(producto['precio_fijo'])} Bs"
+    if producto["modo_precio"] == "FIJO":
+        return f"{formatear_bs(producto['precio_fijo'])} Bs"
+    precios = [f"{p['madera']} {formatear_bs(p['precio_m2'])} Bs/m²" for p in producto["precios"]]
+    return " · ".join(precios) if precios else "precio a consultar"
 
 
 def _payload_accesorio(familia: Text) -> Text:
     return "/agregar_accesorio" + json.dumps({"accesorio": familia})
+
+
+def _payload_madera(madera: Dict[Text, Any]) -> Text:
+    return "/elegir_madera" + json.dumps({"tipo_madera": madera["nombre"]})
+
+
+async def _maderas_para(tipo: Optional[Text]) -> List[Dict[Text, Any]]:
+    """Maderas con precio para el tipo de portón; si aún no se sabe el tipo, las de cualquier tipo."""
+    tipos = [tipo] if tipo else ["corredizo", "batiente"]
+    maderas: Dict[Any, Dict[Text, Any]] = {}
+    for t in tipos:
+        for madera in await backend.maderas_disponibles(t):
+            maderas.setdefault(madera["id"], madera)
+    return list(maderas.values())
+
+
+def _mensaje_cotizacion(pedido: Dict[Text, Any]) -> Text:
+    """Desglose del pedido que devuelve el cotizador del backend. Se cobra el monto exacto, con centavos si los hay."""
+    tipo = pedido["producto"]["tipo_porton"].lower()
+    lineas = [
+        f"Su cotización *{pedido['codigo']}*:",
+        f"• Portón {tipo} de {pedido['madera']['nombre']}, {formatear_metros(pedido['ancho_m'])} m × "
+        f"{formatear_metros(pedido['alto_m'])} m = {formatear_m2(pedido['area_m2'])} m² × "
+        f"{formatear_bs(pedido['precio_m2'])} Bs/m²: {formatear_bs(pedido['subtotal_base'])} Bs",
+    ]
+    lineas += [f"• {a['nombre']}: {formatear_bs(a['precio'])} Bs" for a in pedido["adicionales"]]
+    lineas.append(f"*Total a pagar: {formatear_bs(pedido['total_final'])} Bs*")
+    lineas.append(f"El precio se mantiene hasta el {formatear_fecha(pedido['valido_hasta'])}. Le envío la proforma en PDF.")
+    return "\n".join(lineas)
 
 
 # --- Acciones ----------------------------------------------------------------------------------
@@ -207,6 +239,39 @@ class ActionPreguntarConfirmacionMedidas(Action):
                 {"title": "Sí, son correctas", "payload": "/confirmar"},
                 {"title": "No, corregir", "payload": "/negar"},
             ],
+        )
+        return []
+
+
+class ActionPreguntarMadera(Action):
+    """Ofrece las maderas que hay en la base de datos para ese portón, con su precio por m²."""
+
+    def name(self) -> Text:
+        return "action_ask_tipo_madera"
+
+    async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
+        tipo = _normalizar_tipo(tracker.get_slot("tipo_porton"))
+        ancho, alto = _medidas(tracker)
+        try:
+            maderas = await backend.maderas_disponibles(tipo, ancho, alto)
+        except backend.ErrorBackend:
+            logger.exception("No se pudieron leer las maderas")
+            dispatcher.utter_message(response="utter_error_backend")
+            return []
+        if not maderas:
+            dispatcher.utter_message(text=f"Por ahora no tengo precios de madera para portones {tipo}s. Un asesor le escribirá en breve.")
+            return []
+
+        # Se ofrecen las que alcanzan para estas medidas; si ninguna alcanza, todas (la fabricación esperaría stock).
+        con_stock = [m for m in maderas if m.get("stock_suficiente")]
+        lineas = [f"¿En qué madera lo quiere? Precio por m² del portón {tipo}:"]
+        lineas += [
+            f"• {m['nombre']}: {formatear_bs(m['precio_m2'])} Bs/m²" + ("" if m.get("stock_suficiente") else " (sin stock suficiente por ahora)")
+            for m in maderas
+        ]
+        dispatcher.utter_message(
+            text="\n".join(lineas),
+            buttons=[{"title": m["nombre"], "payload": _payload_madera(m)} for m in (con_stock or maderas)],
         )
         return []
 
@@ -305,13 +370,56 @@ class ValidarFormularioCotizacion(FormValidationAction):
             return {"fuera_ciudad": True}
         return {}
 
-    def validate_tipo_porton(
+    async def extract_tipo_madera(
+        self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
+    ) -> Dict[Text, Any]:
+        # Cuando el bot pregunta la madera, reconoce cualquier especie de la base de datos aunque DIET no la extraiga.
+        if tracker.get_slot("requested_slot") != "tipo_madera":
+            return {}
+        if any(e.get("entity") == "tipo_madera" for e in tracker.latest_message.get("entities", [])):
+            return {}
+        try:
+            madera = buscar_madera(tracker.latest_message.get("text"), await _maderas_para(_normalizar_tipo(tracker.get_slot("tipo_porton"))))
+        except backend.ErrorBackend:
+            logger.exception("No se pudieron leer las maderas")
+            return {}
+        return {"tipo_madera": madera["nombre"]} if madera else {}
+
+    async def validate_tipo_porton(
         self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
     ) -> Dict[Text, Any]:
         tipo = _normalizar_tipo(value)
         if tipo is None:
             dispatcher.utter_message(response="utter_tipo_porton_invalido")
+            return {"tipo_porton": None}
+        # Si eligió la madera en un mensaje anterior (p. ej. antes que el tipo), debe tener precio para este tipo.
+        # Si la nombró en este mismo mensaje, la revisa validate_tipo_madera.
+        if tracker.get_slot("tipo_madera") and "tipo_madera" not in tracker.slots_to_validate():
+            return {"tipo_porton": tipo, **await self._madera_para(tracker.get_slot("tipo_madera"), tipo, dispatcher)}
         return {"tipo_porton": tipo}
+
+    async def validate_tipo_madera(
+        self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
+    ) -> Dict[Text, Any]:
+        return await self._madera_para(value, _normalizar_tipo(tracker.get_slot("tipo_porton")), dispatcher)
+
+    @staticmethod
+    async def _madera_para(nombre: Any, tipo: Optional[Text], dispatcher: CollectingDispatcher) -> Dict[Text, Any]:
+        """{tipo_madera, madera_id} si la madera existe y tiene precio para ese tipo de portón; si no, ambos en None."""
+        vacio = {"tipo_madera": None, "madera_id": None}
+        try:
+            maderas = await _maderas_para(tipo)
+        except backend.ErrorBackend:
+            logger.exception("No se pudieron leer las maderas")
+            dispatcher.utter_message(response="utter_error_backend")
+            return vacio
+        madera = buscar_madera(nombre if isinstance(nombre, str) else None, maderas)
+        if madera:
+            return {"tipo_madera": madera["nombre"], "madera_id": madera["id"]}
+        opciones = ", ".join(m["nombre"] for m in maderas)
+        porton = f" para portones {tipo}s" if tipo else ""
+        dispatcher.utter_message(text=f"No tenemos «{nombre}»{porton}. Trabajamos con: {opciones}." if opciones else "Por ahora no tengo maderas disponibles.")
+        return vacio
 
     def validate_ancho(
         self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
@@ -358,7 +466,7 @@ class ValidarFormularioCotizacion(FormValidationAction):
 
 
 class ActionCotizar(Action):
-    """Envía la solicitud al backend. En el Sprint 3 el endpoint es simulado y no devuelve precio."""
+    """Pide el precio al cotizador del backend, que además crea el pedido; envía el desglose y la proforma."""
 
     def name(self) -> Text:
         return "action_cotizar"
@@ -372,9 +480,10 @@ class ActionCotizar(Action):
             sin_catalogo = [f for f in familias if f not in compatibles]
             if sin_catalogo:
                 logger.warning("Accesorios sin equivalente para portón %s: %s", tipo, sin_catalogo)
-            cotizacion = await backend.cotizar({
+            pedido = await backend.cotizar({
                 "wa_id": tracker.sender_id,
                 "tipo_porton": tipo.upper(),
+                "madera_id": tracker.get_slot("madera_id"),
                 "ancho_m": float(ancho),
                 "alto_m": float(alto),
                 "accesorios": [compatibles[f]["codigo"] for f in familias if f in compatibles],
@@ -382,21 +491,66 @@ class ActionCotizar(Action):
             })
         except backend.ErrorBackend:
             # Los datos se conservan: si el cliente vuelve a pedir la cotización, se reintenta sin preguntar.
-            logger.exception("No se pudo registrar la cotización de %s", tracker.sender_id)
+            logger.exception("No se pudo cotizar para %s", tracker.sender_id)
             dispatcher.utter_message(response="utter_error_backend")
-            return []
+            return [SlotSet("pedido_codigo", None)]
 
-        accesorios = ", ".join(a["nombre"] for a in cotizacion["accesorios"]) or "ninguno"
-        entrega = "fuera de la ciudad" if cotizacion["fuera_ciudad"] else "en la ciudad"
+        dispatcher.utter_message(text=_mensaje_cotizacion(pedido))
+        # El backend arma el PDF y lo adjunta; Rasa solo indica qué documento enviar.
+        dispatcher.utter_message(json_message={"adjunto": "proforma", "pedido": pedido["codigo"]})
+        return [SlotSet(slot, None) for slot in SLOTS_COTIZACION] + [SlotSet("pedido_codigo", pedido["codigo"])]
+
+
+class ValidarFormularioConfirmarPedido(FormValidationAction):
+    def name(self) -> Text:
+        return "validate_formulario_confirmar_pedido"
+
+    async def required_slots(
+        self, domain_slots: List[Text], dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
+    ) -> List[Text]:
+        # Si la cotización falló no hay pedido que confirmar: el formulario termina sin preguntar.
+        return domain_slots if tracker.get_slot("pedido_codigo") else []
+
+    def validate_pedido_confirmado(
+        self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
+    ) -> Dict[Text, Any]:
+        return {"pedido_confirmado": value if isinstance(value, bool) else None}
+
+
+class ActionProcesarConfirmacionPedido(Action):
+    """Pedido confirmado → QR de pago (lo adjunta el backend). No confirmado → el pedido queda cotizado."""
+
+    def name(self) -> Text:
+        return "action_procesar_confirmacion_pedido"
+
+    async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
+        codigo = tracker.get_slot("pedido_codigo")
+        reinicio = [SlotSet(slot, None) for slot in SLOTS_PEDIDO]
+        if not codigo:
+            return reinicio
+
+        if not tracker.get_slot("pedido_confirmado"):
+            dispatcher.utter_message(
+                text=f"Entendido. Su cotización *{codigo}* queda registrada. "
+                "Cuando quiera continuar, escríbanos y un asesor le enviará el QR de pago."
+            )
+            return reinicio
+
+        try:
+            cobro = await backend.crear_pago_qr(codigo, tracker.sender_id)
+        except backend.ErrorBackend:
+            # 409: sin madera suficiente, cotización vencida o pedido no cobrable. Lo resuelve un asesor.
+            logger.exception("No se pudo generar el QR del pedido %s", codigo)
+            dispatcher.utter_message(text="No pude generar el QR de pago en este momento. Un asesor le escribirá para completar su pedido.")
+            return reinicio
+
         dispatcher.utter_message(
-            text="¡Gracias! Registré su solicitud de cotización:\n"
-            f"• Portón {cotizacion['tipo_porton'].lower()} de {formatear_metros(cotizacion['ancho_m'])} m × "
-            f"{formatear_metros(cotizacion['alto_m'])} m ({formatear_metros(cotizacion['area_m2'])} m²)\n"
-            f"• Accesorios: {accesorios}\n"
-            f"• Entrega: {entrega}\n"
-            "Un asesor revisará los datos y le enviará el precio final por este chat."
+            text=f"¡Gracias! Le envío el QR para pagar *{formatear_bs(cobro['monto'])} Bs*, el total del pedido *{codigo}*. "
+            f"Puede pagarlo desde la app de su banco hasta las {formatear_fecha_hora(cobro['expira_en'])}. "
+            "Apenas se confirme el pago, le aviso por aquí."
         )
-        return [SlotSet(slot, None) for slot in SLOTS_COTIZACION]
+        dispatcher.utter_message(json_message={"adjunto": "qr_pago", "pedido": codigo})
+        return reinicio
 
 
 class ActionReiniciarCotizacion(Action):
@@ -404,4 +558,4 @@ class ActionReiniciarCotizacion(Action):
         return "action_reiniciar_cotizacion"
 
     async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
-        return [SlotSet(slot, None) for slot in SLOTS_COTIZACION]
+        return [SlotSet(slot, None) for slot in SLOTS_COTIZACION + SLOTS_PEDIDO]

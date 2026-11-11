@@ -15,11 +15,14 @@ const CATEGORIAS = [
 // Madera de ejemplo para poder probar el sistema; reemplázala por las especies reales del aserradero.
 const MADERA_EJEMPLO = { especie: 'Cedro', espesor_pulg: 1, stock_minimo_m2: 20 };
 
-// Precios aprobados por gerencia (reglas de negocio, en Bs).
+// Tipos de portón. Se cotizan por m² y el precio depende de la madera que elige el cliente (precios_porton).
 const PORTONES = [
-  { nombre: 'Portón Corredizo', tipo_porton: 'CORREDIZO', precio_m2: 2470 },
-  { nombre: 'Portón Batiente', tipo_porton: 'BATIENTE', precio_m2: 2500 },
+  { nombre: 'Portón Corredizo', tipo_porton: 'CORREDIZO' },
+  { nombre: 'Portón Batiente', tipo_porton: 'BATIENTE' },
 ];
+
+// Precios aprobados por gerencia para la madera de ejemplo (Bs/m²). Los de otras maderas los fija el Admin en el panel.
+const PRECIOS_MADERA_EJEMPLO = { CORREDIZO: 2470, BATIENTE: 2500 };
 
 const ACCESORIOS = [
   { codigo: 'MOTOR_CORREDIZO', nombre: 'Motor para portón corredizo', tipo_adicional: 'ACCESORIO', precio: 1740, tipo_porton_compatible: 'CORREDIZO' },
@@ -80,12 +83,18 @@ async function sembrar(client, admin) {
 
   for (const p of PORTONES) {
     await client.query(
-      `INSERT INTO productos (categoria_id, nombre, tipo_porton, modo_precio, precio_m2, madera_id)
-       SELECT c.id, $2, $3, 'POR_M2', $4, m.id
-       FROM categorias_producto c, inventario_madera m
-       WHERE c.nombre = $1 AND m.especie = $5 AND m.espesor_pulg = $6
+      `INSERT INTO productos (categoria_id, nombre, tipo_porton, modo_precio)
+       SELECT c.id, $2, $3, 'POR_M2' FROM categorias_producto c WHERE c.nombre = $1
        ON CONFLICT (nombre) DO NOTHING`,
-      ['Portones', p.nombre, p.tipo_porton, p.precio_m2, MADERA_EJEMPLO.especie, MADERA_EJEMPLO.espesor_pulg],
+      ['Portones', p.nombre, p.tipo_porton],
+    );
+    await client.query(
+      `INSERT INTO precios_porton (producto_id, madera_id, precio_m2)
+       SELECT p.id, m.id, $2
+       FROM productos p, inventario_madera m
+       WHERE p.nombre = $1 AND m.especie = $3 AND m.espesor_pulg = $4
+       ON CONFLICT (producto_id, madera_id) DO NOTHING`,
+      [p.nombre, PRECIOS_MADERA_EJEMPLO[p.tipo_porton], MADERA_EJEMPLO.especie, MADERA_EJEMPLO.espesor_pulg],
     );
   }
 

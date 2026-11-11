@@ -1,6 +1,11 @@
 import { Tarjeta } from '../../components/ui.jsx';
-import { formatearM2, nombreMadera } from '../../utils/formato.js';
+import { formatearBs, formatearM2, nombreMadera } from '../../utils/formato.js';
 import EstadoMadera from './EstadoMadera.jsx';
+
+/** Precio por m² de un tipo de portón, o "—" si esa madera no se ofrece para él. */
+function Precio({ valor }) {
+  return valor ? formatearBs(valor) : <span className="text-stone-400">—</span>;
+}
 
 /** `onEditar` e `onIncluirInactivas` solo llegan para el Admin. */
 export default function TablaMaderas({ maderas, onEditar, incluirInactivas, onIncluirInactivas }) {
@@ -28,6 +33,8 @@ export default function TablaMaderas({ maderas, onEditar, incluirInactivas, onIn
                 <th className="py-2 pr-4 font-medium">Madera</th>
                 <th className="py-2 pr-4 text-right font-medium">Stock actual</th>
                 <th className="py-2 pr-4 text-right font-medium">Mínimo</th>
+                <th className="py-2 pr-4 text-right font-medium" title="Precio por m² del portón corredizo">Corredizo Bs/m²</th>
+                <th className="py-2 pr-4 text-right font-medium" title="Precio por m² del portón batiente">Batiente Bs/m²</th>
                 <th className="py-2 pr-4 font-medium">Estado</th>
                 {onEditar && <th className="py-2" />}
               </tr>
@@ -38,6 +45,8 @@ export default function TablaMaderas({ maderas, onEditar, incluirInactivas, onIn
                   <td className="py-3 pr-4 font-medium">{nombreMadera(m)}</td>
                   <td className="py-3 pr-4 text-right tabular-nums">{formatearM2(m.stock_actual_m2)}</td>
                   <td className="py-3 pr-4 text-right tabular-nums">{formatearM2(m.stock_minimo_m2)}</td>
+                  <td className="py-3 pr-4 text-right tabular-nums"><Precio valor={m.precios?.CORREDIZO} /></td>
+                  <td className="py-3 pr-4 text-right tabular-nums"><Precio valor={m.precios?.BATIENTE} /></td>
                   <td className="py-3 pr-4">
                     <EstadoMadera madera={m} />
                   </td>

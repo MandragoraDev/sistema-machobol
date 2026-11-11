@@ -9,11 +9,19 @@ WhatsApp → backend /api/webhooks/whatsapp → Rasa :5005 (canal REST) → serv
 
 | Archivo | Contenido |
 |---|---|
-| `data/nlu.yml` | Intents, entidades (`tipo_porton`, `ancho`, `alto`, `accesorio`, `codigo_pedido`), sinónimos y expresiones regulares |
+| `data/nlu.yml` | Intents, entidades (`tipo_porton`, `tipo_madera`, `ancho`, `alto`, `accesorio`, `codigo_pedido`), sinónimos, tabla de búsqueda de maderas y expresiones regulares |
 | `data/rules.yml` | Respuestas fijas, inicio y cierre de la cotización, e interrupciones dentro del formulario |
 | `domain.yml` | Slots, formulario `formulario_cotizacion` y textos del bot (trato de "usted") |
-| `actions/` | Acciones personalizadas: catálogo, validación del formulario y envío de la cotización al backend |
+| `actions/` | Acciones personalizadas: catálogo, validación de los formularios, cotización y QR de pago (todo lo calcula el backend) |
 | `actions/medidas.py` | Lector de medidas ("4x2,20", "2,20 de alto", "dos por dos y medio"), con pruebas en `tests/` |
+| `actions/maderas.py` | Reconoce la madera que nombra el cliente entre las que ofrece el backend (también especies que el modelo nunca vio) |
+
+**Maderas:** el bot no conoce ninguna de antemano. Tras confirmar las medidas pide al backend las maderas con precio para
+ese portón y las ofrece con botones (solo las que tienen stock suficiente para esas medidas, si alguna lo tiene).
+
+**Archivos:** la proforma y el QR no pasan por Rasa. El bot responde con un mensaje `custom`
+(`{"adjunto": "proforma" | "qr_pago", "pedido": "MCH-…"}`) y el backend genera el archivo, comprueba que el pedido
+sea de quien conversa y lo envía por WhatsApp.
 
 **Convención de medidas:** si el cliente da dos medidas sin decir cuál es cuál ("4 por 2,20"), la primera es el
 ancho y la segunda el alto. El bot siempre pide confirmarlas antes de seguir.

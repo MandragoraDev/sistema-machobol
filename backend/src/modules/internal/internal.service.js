@@ -1,48 +1,54 @@
 const AppError = require('../../utils/AppError');
+const { nombreMadera } = require('../../utils/formato');
 const catalogoRepository = require('../catalogo/catalogo.repository');
+const clientesRepository = require('../clientes/clientes.repository');
+const cotizadorService = require('../cotizador/cotizador.service');
+const pedidosService = require('../pedidos/pedidos.service');
+const pagosService = require('../pagos/pagos.service');
 
-/** Catálogo vigente para el bot: productos activos agrupados por categoría, y accesorios y recargos. */
+/**
+ * Catálogo vigente para el bot: productos activos por categoría (los portones, con su precio por m² en cada madera)
+ * y accesorios y recargos.
+ */
 async function catalogo() {
-  const [categorias, productos, accesorios] = await Promise.all([
+  const [categorias, productos, precios, accesorios] = await Promise.all([
     catalogoRepository.listarCategorias(),
     catalogoRepository.listarProductosActivos(),
+    catalogoRepository.listarPreciosPorton(),
     catalogoRepository.listarAccesoriosActivos(),
   ]);
   return {
     categorias: categorias.map((c) => ({
       nombre: c.nombre,
-      productos: productos.filter((p) => p.categoria_id === c.id).map(({ categoria_id, ...p }) => p),
+      productos: productos.filter((p) => p.categoria_id === c.id).map(({ id, categoria_id, ...p }) => ({
+        ...p,
+        precios: precios
+          .filter((precio) => precio.producto_id === id)
+          .map((precio) => ({ madera_id: precio.madera_id, madera: nombreMadera(precio), precio_m2: precio.precio_m2 })),
+      })),
     })),
     accesorios,
   };
 }
 
-/** m² exactos (4 decimales) con aritmética entera: centímetros × centímetros. */
-function areaM2(anchoM, altoM) {
-  const cm2 = Math.round(anchoM * 100) * Math.round(altoM * 100);
-  return `${Math.trunc(cm2 / 10000)}.${String(cm2 % 10000).padStart(4, '0')}`;
-}
-
-/**
- * Cotización SIMULADA (Sprint 3): valida la solicitud del bot y la devuelve resumida, sin precio.
- * El cálculo real (precios, recargo, redondeo a 100 Bs y PDF) llega en el Sprint 4.
- */
-async function cotizarSimulado(datos) {
-  const porCodigo = new Map((await catalogoRepository.listarAccesoriosActivos()).map((a) => [a.codigo, a]));
-  const codigos = [...new Set(datos.accesorios)];
-  const invalidos = codigos.filter((codigo) => porCodigo.get(codigo)?.tipo_adicional !== 'ACCESORIO');
-  if (invalidos.length > 0) {
-    throw new AppError(400, `Accesorios no válidos: ${invalidos.join(', ')}.`);
+/** Cotiza con el cotizador real y deja el pedido COTIZADO a nombre del cliente que escribe por WhatsApp. */
+async function cotizar({ wa_id, ...solicitud }) {
+  const cliente = await clientesRepository.buscarPorWaId(wa_id);
+  if (!cliente) {
+    throw new AppError(404, 'El cliente no está registrado.');
   }
-  return {
-    simulado: true,
-    tipo_porton: datos.tipo_porton,
-    ancho_m: datos.ancho_m,
-    alto_m: datos.alto_m,
-    area_m2: areaM2(datos.ancho_m, datos.alto_m),
-    accesorios: codigos.map((codigo) => ({ codigo, nombre: porCodigo.get(codigo).nombre })),
-    fuera_ciudad: datos.fuera_ciudad,
-  };
+  return pedidosService.crearPedido(solicitud, { clienteId: cliente.id, canal: 'WHATSAPP' });
 }
 
-module.exports = { catalogo, cotizarSimulado };
+/** Maderas que el bot puede ofrecer para ese tipo de portón (y si alcanza el stock, cuando ya conoce las medidas). */
+function maderas(consulta) {
+  return cotizadorService.maderasDisponibles(consulta);
+}
+
+/** Genera (o reutiliza) el QR de cobro de un pedido del cliente. La imagen la envía el backend como adjunto. */
+async function crearPagoQr(codigo, { wa_id }) {
+  await pedidosService.obtenerDelCliente(codigo, wa_id);
+  return pagosService.presentarCobro(await pagosService.crearCobroQr(codigo), { conImagen: false });
+}
+
+module.exports = { catalogo, cotizar, maderas, crearPagoQr };

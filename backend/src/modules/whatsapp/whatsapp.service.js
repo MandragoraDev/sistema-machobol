@@ -2,11 +2,13 @@ const logger = require('../../config/logger');
 const { enSegundoPlano } = require('../../utils/segundoPlano');
 const whatsappRepository = require('./whatsapp.repository');
 const rasa = require('./whatsapp.rasa');
-const graph = require('./whatsapp.graph');
+const { enviarYRegistrar } = require('./whatsapp.envio');
+const { prepararAdjunto } = require('./whatsapp.adjuntos');
 const { extraerMensajes, textoParaRasa, aMensajesWhatsApp, mensajeDeTexto } = require('./whatsapp.mensajes');
 
 const SOLO_TEXTO = 'Por ahora solo puedo leer mensajes de texto. ¿Me lo escribe, por favor?';
 const SIN_ASISTENTE = 'Disculpe, en este momento no puedo responderle. Un asesor de MACHOBOL le escribirá en breve.';
+const SIN_ADJUNTO = 'No pude adjuntar el documento. Un asesor se lo enviará en breve.';
 
 /**
  * Registra los mensajes de una notificación de Meta y agenda su respuesta en segundo plano.
@@ -39,20 +41,20 @@ async function responder(waId, clienteId, mensaje) {
     }
   }
   for (const respuesta of respuestas) {
-    await enviarYRegistrar(waId, clienteId, respuesta);
+    if (respuesta.type !== 'adjunto') {
+      await enviarYRegistrar(waId, clienteId, respuesta);
+      continue;
+    }
+    let preparado;
+    try {
+      preparado = await prepararAdjunto(waId, respuesta.adjunto);
+    } catch (err) {
+      logger.error({ err, waId, adjunto: respuesta.adjunto }, 'No se pudo preparar el adjunto');
+      await enviarYRegistrar(waId, clienteId, mensajeDeTexto(SIN_ADJUNTO));
+      continue;
+    }
+    await enviarYRegistrar(waId, clienteId, preparado.mensaje, preparado.archivo);
   }
-}
-
-async function enviarYRegistrar(waId, clienteId, mensaje) {
-  let waMessageId;
-  try {
-    waMessageId = await graph.enviar(waId, mensaje);
-  } catch (err) {
-    logger.error({ err, waId }, 'No se pudo enviar el mensaje de WhatsApp');
-    await whatsappRepository.registrarSaliente(null, clienteId, { ...mensaje, error: err.message });
-    return;
-  }
-  await whatsappRepository.registrarSaliente(waMessageId, clienteId, mensaje);
 }
 
 module.exports = { recibirNotificacion };

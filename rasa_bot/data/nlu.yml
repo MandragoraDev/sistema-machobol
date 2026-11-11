@@ -95,6 +95,11 @@ nlu:
       - qué accesorios tienen
       - tienen [motores]{"entity": "accesorio", "value": "motor"} para portones?
       - ver productos
+      - qué maderas tienen
+      - con qué maderas trabajan
+      - qué tipos de madera usan
+      - tienen portones de [tajibo](tipo_madera)?
+      - cuánto cuesta el metro cuadrado en [cedro](tipo_madera)
 
   - intent: cotizar_porton
     examples: |
@@ -132,6 +137,12 @@ nlu:
       - quiero un portón [automático]{"entity": "accesorio", "value": "motor"}
       - cotizame un porton [corredizo](tipo_porton) de [5](ancho) por [2](alto)
       - quiero un portón [batiente](tipo_porton) de [3](ancho) por [2,10](alto) para mi garaje
+      - quiero un portón [corredizo](tipo_porton) de [cedro](tipo_madera) de [4](ancho) por [2,20](alto)
+      - necesito un portón [batiente](tipo_porton) de [tajibo](tipo_madera)
+      - cuánto cuesta un portón de [roble](tipo_madera)
+      - cotización de un portón de madera de [mara](tipo_madera) de [3](ancho) x [2](alto)
+      - quiero un portón [corredizo](tipo_porton) en [tajibo](tipo_madera) con [motor](accesorio)
+      - precio de un portón de [almendrillo](tipo_madera)
 
   - intent: informar_medidas
     examples: |
@@ -194,6 +205,31 @@ nlu:
       - uno [de dos hojas]{"entity": "tipo_porton", "value": "batiente"}
       - prefiero el [corredizo](tipo_porton)
       - mejor uno [batiente](tipo_porton)
+
+  - intent: elegir_madera
+    examples: |
+      - [cedro](tipo_madera)
+      - [tajibo](tipo_madera)
+      - [roble](tipo_madera)
+      - de [cedro](tipo_madera)
+      - de [tajibo](tipo_madera) por favor
+      - en [roble](tipo_madera)
+      - quiero [mara](tipo_madera)
+      - prefiero [tajibo](tipo_madera)
+      - mejor de [cedro](tipo_madera)
+      - que sea de [almendrillo](tipo_madera)
+      - madera [cuchi](tipo_madera)
+      - el de [tajibo](tipo_madera)
+      - la de [cedro](tipo_madera) está bien
+      - me gusta el [tajibo](tipo_madera)
+      - en [paquió](tipo_madera)
+      - quiero que sea de [ochoó](tipo_madera)
+      - de madera [curupaú](tipo_madera)
+      - [pino](tipo_madera) por favor
+      - prefiero la madera de [verdolago](tipo_madera)
+      - de [palo maría](tipo_madera)
+      - [cedro 1](tipo_madera)
+      - el [tajibo 30](tipo_madera)
 
   - intent: agregar_accesorio
     examples: |
@@ -380,6 +416,39 @@ nlu:
       - puerta peatonal
       - puerta pequeña
       - ingreso peatonal
+
+  # Maderas comunes en Bolivia: ayudan a DIET a reconocer la entidad. Las que se ofrecen salen de la base de datos,
+  # y las acciones reconocen también las que no estén en esta lista.
+  - lookup: tipo_madera
+    examples: |
+      - cedro
+      - tajibo
+      - roble
+      - mara
+      - almendrillo
+      - cuchi
+      - ochoó
+      - ochoo
+      - curupaú
+      - curupau
+      - paquió
+      - paquio
+      - verdolago
+      - palo maría
+      - pino
+      - yesquero
+      - sirari
+      - morado
+      - tarara
+      - quebracho
+      - cambará
+      - serebó
+      - jichituriqui
+      - trompillo
+      - mapajo
+      - cedrillo
+      - eucalipto
+      - ipe
 
   # Rasgos para DIET (RegexFeaturizer): cifras con decimal y unidad opcional ("2,20", "2.20 m", "4m").
   - regex: numero_medida

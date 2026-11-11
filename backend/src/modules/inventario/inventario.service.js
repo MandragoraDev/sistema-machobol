@@ -86,6 +86,30 @@ function listarMovimientos(filtros) {
   return inventarioRepository.listarMovimientos(filtros);
 }
 
+/** Stock actual sin bloquear la fila: sirve para pre-validar (p. ej. antes de generar un QR), no para descontar. */
+function stockDisponible(client, maderaId) {
+  return inventarioRepository.obtenerStock(client, maderaId);
+}
+
+/**
+ * Descuenta la madera de un pedido dentro de la transacción del llamador (pago confirmado, PLAN §2.3).
+ * `SELECT … FOR UPDATE` serializa a los pagos que compiten por la misma madera.
+ * Devuelve null, sin modificar nada, si el stock no alcanza.
+ */
+async function registrarSalidaPorPedido(client, { maderaId, cantidadM2, pedidoId, motivo }) {
+  const madera = await maderaBloqueada(client, maderaId);
+  const actualizado = await inventarioRepository.sumarStock(client, madera.id, `-${cantidadM2}`);
+  if (!actualizado) return null;
+  return inventarioRepository.insertarMovimiento(client, {
+    madera_id: madera.id,
+    tipo: 'SALIDA',
+    cantidad_m2: `-${cantidadM2}`,
+    stock_resultante_m2: actualizado.stock_actual_m2,
+    pedido_id: pedidoId,
+    motivo,
+  });
+}
+
 module.exports = {
   listar,
   crearMadera,
@@ -93,4 +117,6 @@ module.exports = {
   registrarIngreso,
   registrarAjuste,
   listarMovimientos,
+  stockDisponible,
+  registrarSalidaPorPedido,
 };

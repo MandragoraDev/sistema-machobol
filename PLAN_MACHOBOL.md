@@ -1,6 +1,6 @@
 # PLAN_MACHOBOL — Sistema Web Integral y Asistente Virtual
 
-> Versión 1.3 · 2026-11-03 · Estado: **aprobado** · Sprints 1 y 2 completados · Moneda única: **bolivianos (Bs)**
+> Versión 1.5 · 2026-11-11 · Estado: **aprobado** · Sprints 1 a 4 completados · Moneda única: **bolivianos (Bs)**
 > Forma de trabajo: un sprint a la vez, con punto de confirmación al cierre de cada uno.
 
 ---
@@ -116,32 +116,34 @@ Todos los montos están en **bolivianos (Bs)**. El sistema no maneja otras moned
 
 ```
 área_m2        = alto_m × ancho_m
-subtotal_base  = área_m2 × precio_m2          (Corredizo 2,470 Bs/m² · Batiente 2,500 Bs/m²)
+subtotal_base  = área_m2 × precio_m2 de la madera elegida   (Cedro 1″: Corredizo 2,470 Bs/m² · Batiente 2,500 Bs/m²)
 adicionales    = Σ accesorios + Σ recargos    (Motor corredizo +1,740 · Motor batiente +2,088 · Puerta ingreso +696
                                                · Transporte/viáticos +150 solo si la entrega es fuera de la ciudad, a más de 45 min)
-total_exacto   = subtotal_base + adicionales
-total_final    = múltiplo de 100 Bs más cercano a total_exacto (empate hacia arriba)
+total_final    = total_exacto = subtotal_base + adicionales   (cobro exacto, sin redondeo)
 ```
 
+- **Cobro exacto (2026-11-06):** el total ya no se redondea a múltiplos de 100 Bs. Con pago 100 % digital por QR no hay
+  cambio físico que dar, y el sobrecargo por redondeo generaba fricción con el cliente. Se cobra el monto exacto, con centavos.
+- **Precio según la madera (2026-11-06):** el precio por m² depende del tipo de portón **y** de la madera que elige el
+  cliente (tabla `precios_porton`). El Admin fija los precios de cada madera en el panel (Inventario → Editar madera);
+  una madera sin precio para un tipo de portón no se le ofrece al cliente.
 - **Aritmética entera:** las medidas se convierten a centímetros y los montos a centavos. Así no hay
-  errores de punto flotante (`área_cm² × precio / 100 = centavos`). Para redondear se usa `round(centavos / 10000) × 10000`.
-- **Snapshot de precios:** el pedido guarda el precio por m² y de cada accesorio vigentes al cotizar. Si después
-  cambia el catálogo, las cotizaciones emitidas no se alteran.
-- Los precios se cargan como *seed* en `productos` y `accesorios` (solo Admin los edita). La fórmula vive en código.
-- Se guardan `total_exacto` y `total_final` para auditar el ajuste por redondeo.
-- **Convención de centavos:** el subtotal se redondea al centavo antes de redondear a 100 Bs, y todos los montos se guardan con 2 decimales.
-- **La BD también aplica la regla:** el CHECK `ck_pedidos_redondeo_100` exige `total_final = round(total_exacto / 100) × 100` en todo pedido cotizado por m².
-- Accesorios y recargos viven en la misma tabla (`accesorios.tipo_adicional` = `ACCESORIO` | `RECARGO`) y ambos se suman antes del redondeo.
+  errores de punto flotante (`área_cm² × precio / 100 = centavos`).
+- **Snapshot de precios:** el pedido guarda la madera, el precio por m² y el de cada accesorio vigentes al cotizar.
+  Si después cambia el catálogo, las cotizaciones emitidas no se alteran.
+- **Convención de centavos:** medio centavo no se puede cobrar, así que el subtotal se redondea al centavo más cercano;
+  todos los montos se guardan con 2 decimales.
+- Accesorios y recargos viven en la misma tabla (`accesorios.tipo_adicional` = `ACCESORIO` | `RECARGO`) y ambos se suman al total.
 
-**Casos de prueba de referencia (Bs):**
+**Casos de prueba de referencia (Bs, madera Cedro 1″):**
 
-| Tipo | Alto × Ancho | Área | Base | Adicionales | Exacto | Final |
-|---|---|---|---|---|---|---|
-| Corredizo | 2.20 × 4.00 | 8.80 | 21,736.00 | Motor corredizo 1,740 | 23,476.00 | **23,500** |
-| Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Motor batiente 2,088 + Puerta 696 | 17,784.00 | **17,800** |
-| Corredizo | 1.50 × 2.50 | 3.75 | 9,262.50 | — | 9,262.50 | **9,300** |
-| Corredizo | 2.00 × 2.50 | 5.00 | 12,350.00 | — | 12,350.00 | **12,400** *(empate → hacia arriba)* |
-| Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Transporte/viáticos 150 | 15,150.00 | **15,200** *(empate → hacia arriba)* |
+| Tipo | Alto × Ancho | Área | Base | Adicionales | Total a pagar |
+|---|---|---|---|---|---|
+| Corredizo | 2.20 × 4.00 | 8.80 | 21,736.00 | Motor corredizo 1,740 | **23,476.00** |
+| Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Motor batiente 2,088 + Puerta 696 | **17,784.00** |
+| Corredizo | 1.50 × 2.50 | 3.75 | 9,262.50 | — | **9,262.50** |
+| Corredizo | 2.00 × 2.50 | 5.00 | 12,350.00 | — | **12,350.00** |
+| Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Transporte/viáticos 150 | **15,150.00** |
 
 ### 2.2 Inventario de madera
 
@@ -233,7 +235,8 @@ Cada regla de integridad tiene un nombre (`ck_*`, `uq_*`, `ux_*`), así la API p
 | `usuarios` | Personal interno | `nombre`, `email` UNIQUE, `password_hash`, `rol` ENUM(`ADMIN`,`VENTAS`,`TALLER`), `activo` |
 | `clientes` | Clientes de WhatsApp | `wa_id` UNIQUE (teléfono E.164), `nombre`, `ci_nit`, `direccion` |
 | `categorias_producto` | Portones, Parques infantiles | `nombre` UNIQUE |
-| `productos` | Catálogo | `categoria_id` FK, `nombre`, `tipo_porton` ENUM(`CORREDIZO`,`BATIENTE`) NULL, `modo_precio` ENUM(`POR_M2`,`FIJO`), `precio_m2`, `precio_fijo`, `madera_id` FK, `factor_consumo`, `merma_pct` |
+| `productos` | Catálogo | `categoria_id` FK, `nombre`, `tipo_porton` ENUM(`CORREDIZO`,`BATIENTE`) NULL, `modo_precio` ENUM(`POR_M2`,`FIJO`), `precio_fijo`, `factor_consumo`, `merma_pct` |
+| `precios_porton` | Precio por m² según portón y madera (desde 2026-11-06) | PK(`producto_id`, `madera_id`), `precio_m2` |
 | `accesorios` | Accesorios y recargos | `codigo` UNIQUE, `nombre`, `tipo_adicional` ENUM(`ACCESORIO`,`RECARGO`), `precio`, `tipo_porton_compatible` NULL |
 | `inventario_madera` | Stock por tipo de madera | `especie`, `espesor_pulg`, `stock_actual_m2` NUMERIC(12,4) CHECK ≥ 0, `stock_minimo_m2` |
 | `movimientos_inventario` | Kardex | `madera_id` FK, `tipo` ENUM(`INGRESO`,`SALIDA`,`AJUSTE`), `cantidad_m2`, `piezas`, `ancho_pulg`, `largo_pies`, `stock_resultante_m2`, `pedido_id` FK NULL, `usuario_id` FK NULL, `motivo` |
@@ -313,7 +316,7 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 3 — Rasa: intents, entidades y webhooks de WhatsApp 🟡 (implementado el 2026-11-03, pendiente de confirmación)
+### Sprint 3 — Rasa: intents, entidades y webhooks de WhatsApp ✅ (2026-11-04)
 
 **Objetivo:** recibir mensajes reales de WhatsApp, entenderlos con Rasa y responder.
 
@@ -360,21 +363,40 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 4 — Cotizador, PDF y pagos QR con transaccionalidad ACID
+### Sprint 4 — Cotizador, PDF y pagos QR con transaccionalidad ACID ✅ (2026-11-11)
 
 **Objetivo:** cerrar el ciclo de venta, de la cotización al pago confirmado y el stock descontado.
 
-- [ ] `cotizador.service`: función pura con aritmética entera (§2.1). Valida rangos de medidas y la compatibilidad de los accesorios, y aplica el recargo `TRANSPORTE_VIATICOS` solo si la entrega es fuera de la ciudad.
-- [ ] `POST /api/cotizaciones/calcular` (panel y `/api/internal` para Rasa).
-- [ ] `POST /api/pedidos`: crea el pedido `COTIZADO` con snapshot de precios y `madera_requerida_m2`.
-- [ ] Pruebas tabuladas del cotizador: casos de §2.1, decimales, empates, medidas inválidas, motor incompatible.
-- [ ] PDF con PDFKit: logo, datos del cliente, desglose (área, base, adicionales, exacto, ajuste por redondeo y total final), código y validez. Se envía por WhatsApp como documento.
-- [ ] Pagos QR:
-  - Interfaz `PaymentGateway { crearCobro, verificarCallback }` con implementación `MockQrGateway` (genera `transaccion_id` y un QR PNG con `qrcode`).
-  - `POST /api/pagos/qr`: pre-valida el stock y genera el cobro en Bs por el **total** del pedido (no se aceptan anticipos), con fecha de vencimiento.
-  - `POST /api/webhooks/pagos`: callback firmado que ejecuta la transacción de §2.3.
-  - `POST /api/dev/pagos/:id/simular` (solo con `NODE_ENV=development`).
-- [ ] Bot de punta a punta: cotiza → PDF → "¿Confirmas el pedido?" → QR → pago simulado → mensaje con el código de pedido.
+- [x] `cotizador.calculo`: función pura con aritmética entera en BigInt (§2.1): centímetros, centavos y diezmilésimas de m². Valida rangos de medidas (0,30–20 m, provisional) y la compatibilidad de los accesorios; los recargos no se eligen como accesorio. `cotizador.service` aplica `TRANSPORTE_VIATICOS` solo si la entrega es fuera de la ciudad.
+- [x] `POST /api/cotizaciones/calcular` (panel) y `POST /api/internal/cotizaciones` (Rasa, que además crea el pedido).
+- [x] `POST /api/pedidos`: crea el pedido `COTIZADO` con snapshot de precios (`pedido_accesorios.precio_aplicado`) y `madera_requerida_m2`. Código `MCH-AAAA-NNNN` correlativo por año (candado de transacción). `GET /api/pedidos/:codigo` y `/proforma`.
+- [x] Pruebas tabuladas del cotizador: casos de §2.1, decimales, centavos, precio según la madera, madera con merma, medidas inválidas, motor incompatible, recargo pedido como accesorio.
+- [x] PDF con PDFKit (una página, tamaño carta): logo, datos del cliente, madera, desglose (área, base, adicionales y total exacto a pagar), código y validez (`COTIZACION_VALIDEZ_DIAS`, 15 días). Se envía por WhatsApp como documento, subido como media a la Graph API.
+- [x] **Corrección del 2026-11-06 — cobro exacto:** sin redondeo a 100 Bs en el cotizador, el PDF, el QR y el webhook (que exige el monto exacto, centavo a centavo). La migración quita `ck_pedidos_redondeo_100` y pasa al monto exacto las cotizaciones aún sin pagar.
+- [x] **Corrección del 2026-11-06 — madera elegida por el cliente:** tabla `precios_porton` (portón × madera), precios editables por el Admin (`PUT /api/catalogo/precios/:maderaId` y el formulario de madera del panel), `GET /api/internal/maderas` y `GET /api/cotizaciones/maderas` (maderas con precio y si alcanza el stock). En Rasa: intent `elegir_madera`, entidad `tipo_madera` (con tabla de búsqueda) y la pregunta "¿En qué madera lo quiere?" con botones; las acciones reconocen cualquier especie de la BD, aunque el modelo no la conozca.
+- [x] Pagos QR:
+  - Interfaz `PaymentGateway { crearCobro, imagenQr, verificarCallback }` con implementación simulada `mockQr` (genera `transaccion_id` y un QR PNG con `qrcode`).
+  - `POST /api/pagos/qr`: pre-valida el stock y genera el cobro en Bs por el **total** del pedido (no se aceptan anticipos), con vencimiento (`PAGOS_QR_VIGENCIA_MINUTOS`, 60 min). Si ya hay un QR vigente devuelve el mismo; rechaza cotizaciones vencidas.
+  - `POST /api/webhooks/pagos`: callback firmado (HMAC-SHA256 en `X-Pasarela-Firma`) que ejecuta la transacción de §2.3, con candados en orden fijo pago → pedido → madera.
+  - `POST /api/dev/pagos/:id/simular` (nunca en producción; requiere el token de servicio). Scripts `npm run pagos:simular` y `/pagar` en el simulador de WhatsApp.
+- [x] Bot de punta a punta: cotiza con el precio real → proforma PDF → "¿Confirma el pedido?" → QR → pago simulado → "¡Pago recibido! Su pedido MCH-… ya está en producción".
+
+**Verificación realizada:**
+- 123 pruebas Jest (45 nuevas): cálculo tabulado, pedidos y snapshot, proforma, QR con pre-validación, idempotencia, concurrencia, reversión total, adjuntos por WhatsApp y subida de media a la Graph API. 13 pruebas Python.
+- Los tres criterios de aceptación tienen su prueba automática (`tests/pagos.test.js`).
+- 22 comprobaciones de punta a punta con Rasa real contra `machobol_test`: venta pagada (stock 15 → 5,32 m²), cotización sin confirmar, QR rechazado por falta de stock y pago rechazado por el banco.
+- Tras las correcciones del 2026-11-06: 130 pruebas Jest y 18 Python; NLU con F1 de intents 0.926 (`elegir_madera` 0.91,
+  entidad `tipo_madera` 0.83, más el reconocimiento de las acciones); 12 comprobaciones de punta a punta con elección de madera
+  (botón, texto libre, madera inexistente, madera nombrada en el primer mensaje) y un pago exacto con centavos
+  (27.259,12 Bs) que descuenta la madera elegida (Tajibo 100 → 90,32 m²) sin tocar las demás.
+
+**Decisiones tomadas en este sprint:**
+- Un pago confirmado sobre un pedido que ya no admite pagos (cancelado o pagado con otro QR) queda en `REVISION`, sin descontar stock: el dinero entró y lo resuelve el Admin.
+- Un callback con un monto distinto al del cobro se rechaza (400) sin cambiar nada.
+- El cliente recibe aviso por WhatsApp del pago confirmado, en revisión o rechazado. La alerta al Admin, por ahora, queda en el log; el Dashboard la mostrará en el Sprint 5.
+- Rasa nunca genera ni ve los archivos: pide un adjunto y el backend comprueba que el pedido sea de quien conversa.
+- Cada pedido descuenta la madera que eligió el cliente. El bot ofrece con botón solo las maderas con stock suficiente para
+  esas medidas; si ninguna alcanza, ofrece todas (la cotización sale, pero el QR se genera recién cuando haya stock).
 
 **Criterios de aceptación:**
 - Prueba de concurrencia: dos pagos simultáneos con stock para uno solo. Exactamente uno queda `EN_PRODUCCION`, el otro `REVISION_STOCK`, y el stock nunca es negativo.
@@ -442,12 +464,14 @@ Todos los supuestos quedaron resueltos el 2026-11-02:
 | Tema | Decisión | Dónde se aplica |
 |---|---|---|
 | **Moneda** | Todo el sistema opera solo en bolivianos (Bs), sin tipo de cambio. | Todos los montos; `pagos_qr.monto` |
-| **Precios** | Corredizo 2,470 Bs/m²; Batiente 2,500 Bs/m²; motor corredizo 1,740; motor batiente 2,088; puerta de ingreso 696. | Seed de `productos` y `accesorios` |
-| **Redondeo** | Al múltiplo de 100 Bs más cercano; el empate se redondea hacia arriba (12,350 → 12,400). | `ck_pedidos_redondeo_100` + cotizador |
+| **Precios** | Cedro 1″: corredizo 2,470 Bs/m², batiente 2,500 Bs/m²; motor corredizo 1,740; motor batiente 2,088; puerta de ingreso 696. Cada madera tiene su propio precio por m², que fija el Admin. | Seed de `precios_porton` y `accesorios`; panel de Inventario |
+| **Redondeo** | ~~Al múltiplo de 100 Bs~~. **Eliminado el 2026-11-06: se cobra el monto exacto**, con centavos. | Cotizador; migración `1793620805000` |
+| **Madera** | El cliente elige la madera; el bot ofrece las que tienen precio para ese portón (con botón, las que tienen stock suficiente). | `precios_porton` + `GET /api/internal/maderas` |
 | **Fases** | Las 11 fases de §2.4 son definitivas. | Seed de `fases_produccion` |
 | **Consumo de madera** | 1 m² de portón consume 1 m² de madera, más un 10 % de merma. | `productos.factor_consumo = 1`, `merma_pct = 10` |
 | **Troca** | m² = ancho (pulg) × largo (pies); el espesor solo clasifica la madera. | Ingreso de inventario (Sprint 2) |
 | **Pago** | Se exige el pago total de la cotización por QR. | `POST /api/pagos/qr` (Sprint 4) |
+| **Validez y vencimientos** | La cotización mantiene su precio 15 días; cada QR vence a los 60 minutos (ambos configurables). | `COTIZACION_VALIDEZ_DIAS`, `PAGOS_QR_VIGENCIA_MINUTOS` (provisional, Sprint 4) |
 | **Recargo de transporte** | Transporte/viáticos de 150 Bs, solo si la entrega es fuera de la ciudad (a más de 45 min). | `accesorios` con `tipo_adicional = 'RECARGO'` |
 | **Parques infantiles** | Precio fijo de catálogo, sin la fórmula por m². | `productos.modo_precio = 'FIJO'` |
 | **Compatibilidad** | Cada motor solo aplica a su tipo de portón; la puerta de ingreso y el transporte aplican a ambos. | `accesorios.tipo_porton_compatible` |

@@ -7,6 +7,7 @@ intents:
   - cotizar_porton
   - informar_medidas
   - elegir_tipo_porton
+  - elegir_madera
   - agregar_accesorio
   - confirmar
   - negar
@@ -15,6 +16,7 @@ intents:
 
 entities:
   - tipo_porton
+  - tipo_madera
   - ancho
   - alto
   - accesorio
@@ -64,6 +66,21 @@ slots:
         conditions:
           - active_loop: formulario_cotizacion
             requested_slot: medidas_confirmadas
+  # Madera elegida: el nombre tal como la ofrece el backend ("Tajibo 30″") y su id, que fija la validación.
+  # Las maderas y sus precios salen de la base de datos; el bot no conoce ninguna de antemano.
+  tipo_madera:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: tipo_madera
+        not_intent: consultar_productos
+      - type: custom
+  madera_id:
+    type: any
+    influence_conversation: false
+    mappings:
+      - type: custom
   accesorios:
     type: list
     influence_conversation: false
@@ -89,6 +106,28 @@ slots:
           - active_loop: formulario_cotizacion
             requested_slot: fuera_ciudad
       - type: custom
+  # Código del pedido recién cotizado (lo fija action_cotizar).
+  pedido_codigo:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: custom
+  pedido_confirmado:
+    type: bool
+    influence_conversation: false
+    mappings:
+      - type: from_intent
+        intent: confirmar
+        value: true
+        conditions:
+          - active_loop: formulario_confirmar_pedido
+            requested_slot: pedido_confirmado
+      - type: from_intent
+        intent: negar
+        value: false
+        conditions:
+          - active_loop: formulario_confirmar_pedido
+            requested_slot: pedido_confirmado
 
 forms:
   formulario_cotizacion:
@@ -97,16 +136,24 @@ forms:
       - ancho
       - alto
       - medidas_confirmadas
+      - tipo_madera
       - accesorios
       - fuera_ciudad
+  # Tras la cotización: "¿Confirma el pedido?". Si la cotización falló, no pregunta nada.
+  formulario_confirmar_pedido:
+    required_slots:
+      - pedido_confirmado
 
 actions:
   - validate_formulario_cotizacion
+  - validate_formulario_confirmar_pedido
   - action_ask_medidas_confirmadas
+  - action_ask_tipo_madera
   - action_ask_accesorios
   - action_ask_fuera_ciudad
   - action_mostrar_catalogo
   - action_cotizar
+  - action_procesar_confirmacion_pedido
   - action_reiniciar_cotizacion
 
 # Trato de "usted". En WhatsApp, *texto* se muestra en negrita.
@@ -176,6 +223,14 @@ responses:
 
   utter_accesorio_desconocido:
     - text: "Por ahora ofrecemos como accesorios el motor y la puerta de ingreso peatonal."
+
+  utter_ask_pedido_confirmado:
+    - text: "¿Confirma el pedido? Le enviaré un QR para pagar el total; la fabricación empieza cuando se confirma el pago."
+      buttons:
+        - title: "Sí, confirmar"
+          payload: "/confirmar"
+        - title: "Ahora no"
+          payload: "/negar"
 
   utter_cotizacion_cancelada:
     - text: "Entendido, dejamos la cotización aquí. Cuando quiera retomarla, escríbame «cotizar portón»."

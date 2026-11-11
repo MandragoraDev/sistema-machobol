@@ -7,8 +7,16 @@ async function catalogo(req, res) {
 }
 
 async function cotizar(req, res) {
-  const datos = validar(esquemas.cotizacion, req.body);
-  res.json(await internalService.cotizarSimulado(datos));
+  res.status(201).json(await internalService.cotizar(validar(esquemas.cotizacion, req.body)));
 }
 
-module.exports = { catalogo, cotizar };
+async function maderas(req, res) {
+  res.json(await internalService.maderas(validar(esquemas.consultaMaderas, req.query)));
+}
+
+async function crearPagoQr(req, res) {
+  const codigo = validar(esquemas.codigo, req.params.codigo);
+  res.json(await internalService.crearPagoQr(codigo, validar(esquemas.pagoQr, req.body)));
+}
+
+module.exports = { catalogo, cotizar, maderas, crearPagoQr };

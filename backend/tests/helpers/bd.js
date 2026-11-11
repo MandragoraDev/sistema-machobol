@@ -37,4 +37,50 @@ async function tokenAdmin() {
   return firmarToken(admin);
 }
 
-module.exports = { db, describeConBD, ADMIN, reiniciarBD, crearUsuarioConToken, tokenAdmin };
+async function crearCliente(waId = '59171234567', nombre = 'Juan Pérez') {
+  const { rows: [cliente] } = await db.query(
+    'INSERT INTO clientes (wa_id, nombre) VALUES ($1, $2) RETURNING id, wa_id, nombre',
+    [waId, nombre],
+  );
+  return cliente;
+}
+
+/** Fija el stock de la madera del seed (Cedro 1″), la única con precios de portón en el seed. */
+async function fijarStockCedro(m2) {
+  await db.query("UPDATE inventario_madera SET stock_actual_m2 = $1 WHERE especie = 'Cedro'", [m2]);
+}
+
+async function idCedro() {
+  const { rows: [madera] } = await db.query("SELECT id FROM inventario_madera WHERE especie = 'Cedro'");
+  return madera.id;
+}
+
+/** Crea una madera con stock y sus precios por m² para cada tipo de portón ({ CORREDIZO: 2900, BATIENTE: null }). */
+async function crearMaderaConPrecios({ especie, espesor = 1, stock = 0, precios = {} }) {
+  const { rows: [madera] } = await db.query(
+    'INSERT INTO inventario_madera (especie, espesor_pulg, stock_actual_m2) VALUES ($1, $2, $3) RETURNING id',
+    [especie, espesor, stock],
+  );
+  for (const [tipo, precio] of Object.entries(precios)) {
+    if (precio === null) continue;
+    await db.query(
+      `INSERT INTO precios_porton (producto_id, madera_id, precio_m2)
+       SELECT id, $2, $3 FROM productos WHERE tipo_porton = $1`,
+      [tipo, madera.id, precio],
+    );
+  }
+  return madera.id;
+}
+
+module.exports = {
+  db,
+  describeConBD,
+  ADMIN,
+  reiniciarBD,
+  crearUsuarioConToken,
+  tokenAdmin,
+  crearCliente,
+  fijarStockCedro,
+  idCedro,
+  crearMaderaConPrecios,
+};

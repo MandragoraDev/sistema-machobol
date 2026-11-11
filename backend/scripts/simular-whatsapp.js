@@ -3,8 +3,10 @@
  * que Meta, y muestra las respuestas del bot (las lee de la tabla mensajes_whatsapp).
  * Sirve para probar el circuito completo sin túnel ni cuenta de Meta.
  *
- *   npm run whatsapp:simular                       chat interactivo
+ *   npm run whatsapp:simular                       chat interactivo (escriba /pagar para pagar el QR recibido)
  *   npm run whatsapp:simular -- "hola"             envía un mensaje y muestra la respuesta
+ *
+ * En modo simulado, las proformas y los QR "enviados" quedan en backend/tmp/whatsapp-simulado.
  *
  * Opciones: --numero 59170000001  --nombre "Cliente de prueba"
  *           --repetir         envía cada mensaje dos veces con el mismo wa_message_id (deduplicación)
@@ -16,6 +18,7 @@ const { randomUUID } = require('node:crypto');
 const env = require('../src/config/env');
 const { pool, query } = require('../src/config/db');
 const { firmar } = require('../src/modules/whatsapp/whatsapp.firma');
+const { simularPago } = require('./simular-pago');
 
 const { values: opciones, positionals } = parseArgs({
   allowPositionals: true,
@@ -110,6 +113,10 @@ function mostrar(contenido) {
       ? interactive.action.buttons.map((b) => b.reply)
       : interactive.action.sections.flatMap((s) => s.rows);
     botones.forEach((b, i) => console.log(`     [${i + 1}] ${b.title}`));
+  } else if (contenido.type === 'document' || contenido.type === 'image') {
+    const { caption, filename } = contenido[contenido.type];
+    const etiqueta = contenido.type === 'document' ? `PDF «${filename}»` : `imagen «${caption}»`;
+    console.log(`Bot: [${etiqueta}]${contenido.archivo_local ? `\n     guardado en ${contenido.archivo_local}` : ''}`);
   } else {
     console.log(`Bot: (${contenido.type}) ${JSON.stringify(contenido[contenido.type])}`);
   }
@@ -146,7 +153,8 @@ async function main() {
     return;
   }
 
-  console.log('Escriba un mensaje, o el número de un botón para pulsarlo. "salir" para terminar.\n');
+  console.log('Escriba un mensaje, o el número de un botón para pulsarlo. "/pagar" (o "/rechazar") simula que el');
+  console.log('banco cobró (o rechazó) el último QR que recibió. "salir" para terminar.\n');
   const consola = readline.createInterface({ input: process.stdin, output: process.stdout });
   let botones = [];
   try {
@@ -154,6 +162,13 @@ async function main() {
       const linea = (await consola.question('Usted: ')).trim();
       if (linea === 'salir') break;
       if (!linea) continue;
+      if (linea === '/pagar' || linea === '/rechazar') {
+        const desde = await ultimoIdMensaje();
+        const resultado = await simularPago({ waId: opciones.numero, estado: linea === '/pagar' ? 'PAGADO' : 'FALLIDO' });
+        console.log(`  (pasarela simulada: ${resultado.error ?? `${resultado.resultado} · pedido ${resultado.pedido} · ${resultado.monto} Bs`})`);
+        if (!resultado.error) (await esperarRespuestas(desde)).forEach(mostrar);
+        continue;
+      }
       const boton = /^\d+$/.test(linea) ? botones[Number(linea) - 1] : undefined;
       const mensaje = boton
         ? { type: 'interactive', interactive: { type: 'button_reply', button_reply: { id: boton.id, title: boton.title } } }

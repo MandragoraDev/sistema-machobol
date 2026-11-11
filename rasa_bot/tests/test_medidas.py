@@ -5,7 +5,7 @@ Ejecutar desde rasa_bot/:  .venv\\Scripts\\python -m unittest discover -s tests 
 import unittest
 from decimal import Decimal
 
-from actions.formato import formatear_bs, formatear_metros
+from actions.formato import formatear_bs, formatear_fecha, formatear_fecha_hora, formatear_m2, formatear_metros
 from actions.medidas import extraer_medidas, leer_medida, medida_valida
 
 D = Decimal
@@ -79,6 +79,16 @@ class Formato(unittest.TestCase):
         self.assertEqual(formatear_metros(4), "4,00")
         self.assertEqual(formatear_metros("8.8000"), "8,80")
         self.assertEqual(formatear_metros(2.205), "2,21")
+
+    def test_m2_con_los_decimales_necesarios(self):
+        self.assertEqual(formatear_m2("8.8000"), "8,80")
+        self.assertEqual(formatear_m2("6.0000"), "6,00")
+        self.assertEqual(formatear_m2("7.1595"), "7,1595")
+
+    def test_fechas_en_hora_de_bolivia(self):
+        # 03:30 UTC del 19 son las 23:30 del 18 en Bolivia (UTC−4).
+        self.assertEqual(formatear_fecha("2026-11-19T03:30:00.000Z"), "18/11/2026")
+        self.assertEqual(formatear_fecha_hora("2026-11-04T19:30:00.000Z"), "15:30 del 04/11/2026")
 
 
 if __name__ == "__main__":

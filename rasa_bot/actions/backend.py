@@ -5,7 +5,8 @@ Rasa nunca calcula precios ni toca la base de datos (PLAN §1): todo lo pide aqu
 import asyncio
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -20,7 +21,11 @@ _catalogo_leido_en = 0.0
 
 
 class ErrorBackend(Exception):
-    """El backend no respondió o rechazó la solicitud."""
+    """El backend no respondió (status None) o rechazó la solicitud (status HTTP y mensaje del backend)."""
+
+    def __init__(self, mensaje: str, status: Optional[int] = None):
+        super().__init__(mensaje)
+        self.status = status
 
 
 async def _solicitar(metodo: str, ruta: str, cuerpo: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -33,7 +38,7 @@ async def _solicitar(metodo: str, ruta: str, cuerpo: Optional[Dict[str, Any]] = 
             ) as respuesta:
                 datos = await respuesta.json(content_type=None)
                 if respuesta.status >= 400:
-                    raise ErrorBackend(f"{metodo} {ruta} → {respuesta.status}: {datos}")
+                    raise ErrorBackend(f"{metodo} {ruta} → {respuesta.status}: {datos}", respuesta.status)
                 return datos
     # En Python 3.10, asyncio.TimeoutError (el que lanza aiohttp al vencer el plazo) no es el TimeoutError estándar.
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
@@ -48,5 +53,19 @@ async def obtener_catalogo() -> Dict[str, Any]:
     return _catalogo
 
 
+async def maderas_disponibles(tipo_porton: str, ancho_m=None, alto_m=None) -> List[Dict[str, Any]]:
+    """Maderas activas con precio para ese tipo de portón. Con las medidas, indica si alcanza el stock."""
+    consulta = {"tipo_porton": tipo_porton.upper()}
+    if ancho_m is not None and alto_m is not None:
+        consulta.update(ancho_m=str(ancho_m), alto_m=str(alto_m))
+    return await _solicitar("GET", f"/internal/maderas?{urlencode(consulta)}")
+
+
 async def cotizar(datos: Dict[str, Any]) -> Dict[str, Any]:
+    """Calcula el precio con el cotizador del backend y crea el pedido COTIZADO."""
     return await _solicitar("POST", "/internal/cotizaciones", datos)
+
+
+async def crear_pago_qr(codigo: str, wa_id: str) -> Dict[str, Any]:
+    """Genera (o reutiliza) el QR de pago del pedido. La imagen la envía el backend como adjunto."""
+    return await _solicitar("POST", f"/internal/pedidos/{codigo}/pago-qr", {"wa_id": wa_id})

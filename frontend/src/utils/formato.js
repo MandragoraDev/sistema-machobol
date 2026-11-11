@@ -1,4 +1,6 @@
 const M2 = new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+// useGrouping 'always': en español, Intl no agrupa los miles de números de 4 cifras ("2470,00").
+const BS = new Intl.NumberFormat('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' });
 const DECIMAL = new Intl.NumberFormat('es-BO', { maximumFractionDigits: 4 });
 const FECHA_HORA = new Intl.DateTimeFormat('es-BO', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -12,6 +14,11 @@ export function formatearM2(valor) {
 export function formatearDeltaM2(valor) {
   const numero = Number(valor);
   return `${numero > 0 ? '+' : numero < 0 ? '−' : ''}${M2.format(Math.abs(numero))} m²`;
+}
+
+/** "2470.00" → "2.470,00". */
+export function formatearBs(valor) {
+  return BS.format(Number(valor));
 }
 
 export function formatearNumero(valor) {

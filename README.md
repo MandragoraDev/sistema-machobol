@@ -34,6 +34,8 @@ Edita `backend/.env`:
 - `ADMIN_EMAIL` y `ADMIN_PASSWORD`: credenciales del primer usuario Admin del panel.
 - `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` y `SERVICE_TOKEN`: secretos del webhook y del asistente
   (ver la sección 3). Mientras no tengas la app de Meta, pon valores aleatorios.
+- `PAGOS_WEBHOOK_SECRET`: secreto con que la pasarela firma sus callbacks (con la pasarela simulada, cualquier valor
+  aleatorio de 32 caracteres o más). `COTIZACION_VALIDEZ_DIAS` y `PAGOS_QR_VIGENCIA_MINUTOS` tienen valores por defecto.
 
 Luego:
 
@@ -98,6 +100,38 @@ npm run whatsapp:simular -- --firma-invalida "hola"       # la API responde 401
 
 Mientras el túnel está abierto, toda la API es accesible desde internet: ciérralo (Ctrl+C) al terminar de probar.
 
+### 4. Cotizaciones, pedidos y pagos QR
+
+El cotizador aplica la fórmula del [plan](PLAN_MACHOBOL.md#21-cotizador-paramétrico-regla-fija) con aritmética entera
+(centímetros y centavos) y cobra el **monto exacto**, sin redondeos. El precio por m² depende del tipo de portón y de la
+madera que elige el cliente: el Admin lo fija en **Inventario → Editar madera** (una madera sin precio no se ofrece).
+Cada cotización crea un pedido `MCH-AAAA-NNNN` con los precios congelados y su proforma en PDF. La madera se descuenta
+**solo** cuando la pasarela confirma el pago, dentro de una transacción ACID (`SELECT … FOR UPDATE`).
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `POST /api/cotizaciones/calcular` | Admin, Ventas | Desglose sin guardar nada |
+| `GET /api/cotizaciones/maderas` | Admin, Ventas | Maderas con precio para un tipo de portón (y si alcanza el stock) |
+| `PUT /api/catalogo/precios/:maderaId` | Admin | Precio por m² de una madera para cada tipo de portón |
+| `POST /api/pedidos` | Admin, Ventas | Cotiza y crea el pedido `COTIZADO` |
+| `GET /api/pedidos/:codigo` · `/proforma` | Todos · Admin, Ventas | Detalle del pedido · proforma en PDF |
+| `POST /api/pagos/qr` | Admin, Ventas | QR por el total (verifica antes que haya madera) |
+| `POST /api/webhooks/pagos` | Pasarela (firma HMAC) | Confirma o rechaza el pago |
+| `GET /api/internal/maderas` · `POST /api/internal/cotizaciones` · `/pedidos/:codigo/pago-qr` | Rasa (`X-Service-Token`) | Lo mismo, para el asistente |
+| `POST /api/dev/pagos/:id/simular` | Simuladores (`X-Service-Token`) | Simula el cobro; no existe en producción |
+
+**Simular una venta completa por WhatsApp** (API, Rasa y acciones levantados):
+
+1. En **Inventario**, cada madera que quieras ofrecer necesita su precio por m² (Editar madera) y stock: un portón de
+   4 × 2,20 m consume 9,68 m². El seed solo trae precios para **Cedro 1″**.
+2. `npm run whatsapp:simular` y escribe, por ejemplo, "quiero un portón corredizo de 4 por 2,20". El bot confirma las
+   medidas, te ofrece las maderas con su precio, cotiza, envía la proforma (en modo simulado se guarda en
+   `backend/tmp/whatsapp-simulado/`) y pregunta si confirmas.
+3. Al confirmar recibes el QR (también en esa carpeta). Escribe `/pagar` para que la pasarela simulada lo cobre
+   (o `/rechazar`). El bot avisa del pago y el pedido pasa a producción con la madera descontada.
+
+Fuera del chat: `npm run pagos:simular -- MCH-2026-0001` (o `--fallido`) cobra el QR vigente de un pedido.
+
 ## Scripts del backend
 
 | Script | Qué hace |
@@ -110,5 +144,6 @@ Mientras el túnel está abierto, toda la API es accesible desde internet: ciér
 | `npm run db:reset` | Revierte todas las migraciones, las vuelve a aplicar y ejecuta el seed (**borra los datos**) |
 | `npm run db:seed` | Carga los datos base (idempotente: no sobrescribe lo editado) |
 | `npm run db:migration:create -- <nombre>` | Crea una nueva migración SQL |
-| `npm run whatsapp:simular` | Simula un cliente de WhatsApp contra el webhook local (ver la sección 3) |
+| `npm run whatsapp:simular` | Simula un cliente de WhatsApp contra el webhook local (ver las secciones 3 y 4) |
+| `npm run pagos:simular -- <código>` | Simula el cobro (o con `--fallido`, el rechazo) del QR vigente de un pedido |
 | `npm run tunel` | Abre un túnel HTTPS público hacia la API con cloudflared, para el webhook de Meta |

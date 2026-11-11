@@ -10,6 +10,9 @@ node_modules/
 dist/
 coverage/
 
+# Archivos que genera el backend en modo simulado (proformas y QR "enviados" por WhatsApp)
+backend/tmp/
+
 # Logs
 *.log
 npm-debug.log*
