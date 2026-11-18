@@ -51,7 +51,13 @@ async function main() {
   const client = new Client({ connectionString: PG_ADMIN_URL });
   await client.connect();
   try {
+    const servidorLocal = new URL(PG_ADMIN_URL).host;
     for (const url of [DATABASE_URL, TEST_DATABASE_URL].filter(Boolean)) {
+      // Una base en otro servidor (p. ej. Supabase) ya trae su rol y su base: aquí no hay nada que crear.
+      if (new URL(url).host !== servidorLocal) {
+        console.log(`"${new URL(url).host}" no es el servidor de PG_ADMIN_URL; se omite.`);
+        continue;
+      }
       await crearRolYBase(client, url);
     }
   } finally {

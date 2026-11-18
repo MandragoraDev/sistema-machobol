@@ -12,12 +12,14 @@ El plan completo, las reglas de negocio y el modelo de datos están en [PLAN_MAC
 ## Requisitos
 
 - Node.js 20 o superior
-- PostgreSQL 16 o superior
+- Base de datos: proyecto de **Supabase** (PostgreSQL 17), donde vive la base del sistema
+- PostgreSQL 16 o superior en el equipo, solo para las pruebas automáticas (`machobol_test`)
 - Python 3.10 (solo para el asistente de Rasa)
 
 ## Levantar el proyecto (día a día)
 
-Con todo ya instalado, doble clic en **`iniciar.cmd`** (raíz del proyecto). Comprueba que PostgreSQL esté activo, abre la
+Con todo ya instalado, doble clic en **`iniciar.cmd`** (raíz del proyecto). Revisa la configuración de la base (Supabase,
+o PostgreSQL local si `DATABASE_URL` apunta a `localhost`), abre la
 API, Rasa, el servidor de acciones y el panel, cada uno en su ventana, y avisa cuando todo responde. Para detener todo,
 cierra esas ventanas. `iniciar.cmd -Recarga` levanta la API con recarga automática (útil al programar el backend; cada
 reinicio corta las respuestas del bot en curso).
@@ -44,11 +46,33 @@ npm install
 cp .env.example .env      # en PowerShell: Copy-Item .env.example .env
 ```
 
+La base del sistema está en **Supabase**. Para crearla en un proyecto nuevo:
+
+1. En Supabase, **SQL Editor → New query**: pega y ejecuta [docs/supabase/machobol_supabase.sql](docs/supabase/machobol_supabase.sql)
+   (tablas, reglas, triggers, datos base y el bloqueo de la API pública). Luego ejecuta
+   [docs/supabase/verificar.sql](docs/supabase/verificar.sql): todas las filas deben decir ✅.
+   Alternativa sin SQL Editor: con `DATABASE_URL` ya configurada, `npm run db:migrate` crea lo mismo.
+2. Descarga el certificado (**Project Settings → Database → SSL Configuration → Download certificate**) y guárdalo
+   como `backend/certs/supabase-ca.crt`.
+3. Copia la cadena del **Session pooler** (**Connect → Connection String**) en `DATABASE_URL`, con la contraseña de la
+   base y `?sslmode=verify-full&sslrootcert=certs/supabase-ca.crt` al final (ver `.env.example`). No uses
+   "Direct connection": en el plan gratuito solo funciona por IPv6.
+
+La migración `1793620807000_proteger-api-de-supabase` activa RLS en todas las tablas y quita los permisos de `anon` y
+`authenticated`: la publishable key de Supabase no puede leer ni modificar nada. Solo el backend accede a los datos.
+
+La base tiene **contenido de prueba** para probar el sistema desplegado: usuarios `ventas.prueba@` y `taller.prueba@machobol.local`,
+la madera Tajibo con precios inventados, trocas de ingreso, clientes "Cliente demo · …" con pedidos pagados en distintas
+etapas y una cotización por WhatsApp sin pagar. Antes de operar con clientes reales, ejecuta una sola vez
+[docs/supabase/limpiar-datos-de-prueba.sql](docs/supabase/limpiar-datos-de-prueba.sql) en el SQL Editor: borra todo eso y
+conserva el catálogo y el Administrador.
+
 Edita `backend/.env`:
 
-- `DATABASE_URL`: elige la contraseña del rol `machobol_app`.
-- `TEST_DATABASE_URL`: la base que usan las pruebas (`machobol_test`). Las pruebas la vacían: nunca apuntes aquí a datos reales.
-- `PG_ADMIN_URL`: pon la contraseña del usuario `postgres` que definiste al instalar PostgreSQL.
+- `DATABASE_URL`: la cadena de Supabase descrita arriba (o, para trabajar sin conexión, un PostgreSQL local; ver `.env.example`).
+- `TEST_DATABASE_URL`: la base que usan las pruebas (`machobol_test`, en el PostgreSQL local). Las pruebas la vacían:
+  nunca apuntes aquí a Supabase ni a datos reales.
+- `PG_ADMIN_URL`: pon la contraseña del usuario `postgres` que definiste al instalar PostgreSQL (solo para `db:setup`).
 - `JWT_SECRET`: al menos 32 caracteres aleatorios (el `.env.example` indica cómo generarlo).
 - `ADMIN_EMAIL` y `ADMIN_PASSWORD`: credenciales del primer usuario Admin del panel.
 - `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` y `SERVICE_TOKEN`: secretos del webhook y del asistente
@@ -59,9 +83,9 @@ Edita `backend/.env`:
 Luego:
 
 ```bash
-npm run db:setup     # crea el rol machobol_app y las bases machobol y machobol_test (una sola vez)
-npm run db:migrate   # crea las tablas
-npm run db:seed      # carga catálogo (precios en Bs), fases, estados y el usuario Admin
+npm run db:setup     # crea el rol machobol_app y la base local machobol_test de las pruebas (una sola vez)
+npm run db:migrate   # aplica las migraciones pendientes (en Supabase, si ya corriste el script, no hay ninguna)
+npm run db:seed      # carga catálogo (precios en Bs), fases, estados y el usuario Admin (idempotente)
 npm run dev          # API en http://localhost:4000
 ```
 

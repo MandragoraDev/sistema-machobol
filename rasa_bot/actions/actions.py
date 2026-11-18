@@ -132,6 +132,11 @@ def _validar_medida(slot: Text, valor: Any, dispatcher: CollectingDispatcher, tr
     if valor is None:
         return {slot: None}
     medida = leer_medida(valor)
+    if medida is None and tracker.get_slot("requested_slot") != slot:
+        # Una entidad que no es una medida (DIET leyó "nomas" como alto en "la puerta de ingreso nomas") no borra
+        # la medida ya dada ni genera avisos si el bot no estaba preguntando por ella.
+        previa = leer_medida(_valor_previo(tracker, slot))
+        return {slot: float(previa) if previa is not None else None}
     if medida is None or not medida_valida(medida):
         dispatcher.utter_message(
             text=f"La medida debe estar entre {formatear_metros(MEDIDA_MINIMA)} m y {formatear_metros(MEDIDA_MAXIMA)} m. "

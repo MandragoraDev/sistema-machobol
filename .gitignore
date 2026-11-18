@@ -10,6 +10,9 @@ node_modules/
 dist/
 coverage/
 
+# Archivos temporales de Word/Office (aparecen mientras un documento está abierto)
+~$*
+
 # Archivos que genera el backend en modo simulado (proformas y QR "enviados" por WhatsApp)
 backend/tmp/
 # Informes de npm run pruebas:rendimiento (se guardan a mano los que sirvan como evidencia)

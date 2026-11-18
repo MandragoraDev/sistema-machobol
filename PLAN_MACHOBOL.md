@@ -19,7 +19,7 @@ Sistema para MACHOBOL (portones y parques infantiles de madera) que automatiza:
 | API REST | Node.js 24 + Express 5 + `pg` | `/backend` | 4000 |
 | Panel web | React 19 + Vite + TailwindCSS | `/frontend` | 5173 |
 | Motor PLN | Rasa Open Source 3.6 (Python 3.10) | `/rasa_bot` | 5005 (servidor) · 5055 (acciones) |
-| Base de datos | PostgreSQL 16+ | — | 5432 |
+| Base de datos | PostgreSQL 17 en Supabase (São Paulo, sa-east-1); PostgreSQL 16 local solo para las pruebas | — | 5432 (Session pooler) |
 
 ---
 
@@ -430,6 +430,12 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 - [x] Al cerrar la fase 11, el pedido pasa a `ENTREGADO`. Avisos por WhatsApp al salir en ruta y al quedar instalado.
 - [x] Pruebas técnicas: `npm run pruebas:rendimiento` (autocannon, latencias p50–p99 e informe Markdown),
   `npm run demo:pedidos` (pedidos pagados de demostración) y guía UAT con 20 casos en [docs/UAT_MACHOBOL.md](docs/UAT_MACHOBOL.md).
+- [x] **Base de datos en Supabase (2026-11-18):** el esquema se creó con [docs/supabase/machobol_supabase.sql](docs/supabase/machobol_supabase.sql)
+  (generado desde las migraciones) y se comprobó con [docs/supabase/verificar.sql](docs/supabase/verificar.sql). Conexión por
+  Session pooler con TLS verificado (`certs/supabase-ca.crt`). La migración `1793620807000` activa RLS y quita los permisos
+  de `anon`/`authenticated`: la API REST pública responde "permission denied". Las pruebas siguen en `machobol_test` local.
+  Contenido de prueba cargado por la API (usuarios Ventas/Taller, Tajibo, trocas, 4 pedidos pagados en distintas etapas y
+  una cotización por WhatsApp); se elimina con [docs/supabase/limpiar-datos-de-prueba.sql](docs/supabase/limpiar-datos-de-prueba.sql).
 - [ ] Bot: `consultar_estado_pedido` responde con la fase actual del pedido.
 - [ ] Plantillas de WhatsApp aprobadas por Meta para los avisos fuera de la ventana de 24 h (hoy son mensajes de texto).
 - [ ] Dashboard final: ventas del mes y pagos en revisión.
@@ -441,6 +447,11 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 - 19 comprobaciones en Edge con los tres roles contra `machobol_test`: tablero, avance con observación, retroceso con
   motivo, entrega, fecha de instalación, calendario, conflicto por doble avance y vista móvil.
 - Tiempos de respuesta (base de pruebas, 10 conexiones): endpoints de lectura con p97,5 entre 2 y 10 ms; inicio de sesión ≈ 225 ms.
+- Con la base en Supabase São Paulo y la API en el equipo local (2026-11-18): cada consulta cuesta ≈ 106 ms de ida y
+  vuelta. p50 entre 103 ms (salud) y 412 ms (catálogo y cotización); 5 de 6 endpoints cumplen el umbral de 500 ms en p97,5
+  (la cotización llega a 754 ms). Se comparó con un proyecto en Virginia (≈ 125 ms por consulta, 3 de 6 cumplían) y se
+  eligió São Paulo. Con la API desplegada en la misma región que la base, cada consulta costaría ≈ 1–2 ms (Sprint 6).
+  Informe: `backend/pruebas/resultados/rendimiento-20261118-0054.md`.
 
 **Criterios de aceptación:**
 - Prueba E2E: mensaje simulado → cotización → pago → fase 1 → … → fase 11 → `ENTREGADO`, con stock e historial consistentes.
@@ -456,7 +467,8 @@ Detectado en esta máquina (Windows 10) el 2026-11-02:
 | Requisito | Estado | Acción |
 |---|---|---|
 | Node.js ≥ 20 | ✅ v24.18.0 (npm 11.16.0) | — |
-| PostgreSQL 16+ | ✅ PostgreSQL 16.15 (servicio `postgresql-x64-16`, puerto 5432) | — |
+| PostgreSQL 16+ | ✅ PostgreSQL 16.15 (servicio `postgresql-x64-16`, puerto 5432) | Desde el 2026-11-18 solo aloja `machobol_test` |
+| Supabase | ✅ Proyecto en São Paulo (sa-east-1), PostgreSQL 17.11, plan gratuito | Base del sistema desde el 2026-11-18 (ver §4, Sprint 5) |
 | Python 3.10 (Rasa) | ✅ Python 3.10.11 junto al 3.14; Rasa en `rasa_bot/.venv` | — |
 | Docker | ❌ No instalado | Opcional; el plan no lo requiere |
 | Túnel HTTPS (cloudflared) | ❌ No instalado | `winget install --id Cloudflare.cloudflared` cuando se configure Meta |

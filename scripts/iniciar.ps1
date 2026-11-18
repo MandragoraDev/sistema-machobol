@@ -26,12 +26,27 @@ function Responde($url, $texto) {
 Write-Host "MACHOBOL - iniciando desde $raiz`n" -ForegroundColor Cyan
 
 # 1. Requisitos
-$postgres = Get-Service 'postgresql-x64-*' -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $postgres) { Error-Y-Salir 'No encuentro el servicio de PostgreSQL (postgresql-x64-*).' }
-if ($postgres.Status -ne 'Running') {
-  Error-Y-Salir "PostgreSQL ($($postgres.Name)) está detenido. Inícialo desde 'Servicios' de Windows, o en una terminal de administrador: Start-Service $($postgres.Name)"
-}
 if (-not (Test-Path "$raiz\backend\.env")) { Error-Y-Salir 'Falta backend\.env (cópialo de backend\.env.example y complétalo).' }
+$urlBase = (Get-Content "$raiz\backend\.env" | Where-Object { $_ -match '^DATABASE_URL=' } | Select-Object -First 1) -replace '^DATABASE_URL=', ''
+if (-not $urlBase) { Error-Y-Salir 'Falta DATABASE_URL en backend\.env.' }
+if ($urlBase -match '\[YOUR-PASSWORD\]') {
+  Error-Y-Salir 'En backend\.env, la línea DATABASE_URL todavía dice [YOUR-PASSWORD]: reemplázalo por la contraseña de la base de Supabase.'
+}
+if ($urlBase -match '@(localhost|127\.0\.0\.1|\[::1\])[:/]') {
+  # Base local: el servicio de PostgreSQL de Windows tiene que estar corriendo.
+  $postgres = Get-Service 'postgresql-x64-*' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $postgres) { Error-Y-Salir 'No encuentro el servicio de PostgreSQL (postgresql-x64-*).' }
+  if ($postgres.Status -ne 'Running') {
+    Error-Y-Salir "PostgreSQL ($($postgres.Name)) está detenido. Inícialo desde 'Servicios' de Windows, o en una terminal de administrador: Start-Service $($postgres.Name)"
+  }
+  Write-Host 'Base de datos: PostgreSQL local' -ForegroundColor DarkGray
+} else {
+  # Base remota (Supabase): la API avisará si no puede conectarse; aquí solo se comprueba el certificado.
+  if ($urlBase -match 'sslrootcert=([^&]+)' -and -not (Test-Path (Join-Path "$raiz\backend" $Matches[1]))) {
+    Error-Y-Salir "Falta el certificado de la base: backend\$($Matches[1])"
+  }
+  Write-Host ('Base de datos: remota (' + ($urlBase -replace '^.*@([^:/]+).*$', '$1') + ')') -ForegroundColor DarkGray
+}
 if (-not (Test-Path "$raiz\backend\node_modules")) { Error-Y-Salir 'Faltan las dependencias del backend: en backend\ ejecuta npm install.' }
 if (-not (Test-Path "$raiz\frontend\node_modules")) { Error-Y-Salir 'Faltan las dependencias del panel: en frontend\ ejecuta npm install.' }
 if (-not (Test-Path "$raiz\rasa_bot\.venv\Scripts\rasa.exe")) { Error-Y-Salir 'Falta el entorno de Rasa: ver rasa_bot\README.md (Python 3.10 y .venv).' }
