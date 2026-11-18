@@ -143,6 +143,12 @@ nlu:
       - cotización de un portón de madera de [mara](tipo_madera) de [3](ancho) x [2](alto)
       - quiero un portón [corredizo](tipo_porton) en [tajibo](tipo_madera) con [motor](accesorio)
       - precio de un portón de [almendrillo](tipo_madera)
+      - quiero un portón [corredizo](tipo_porton) de [tres](ancho) por [dos veinte](alto)
+      - necesito un portón de [cuatro](ancho) por [dos cincuenta](alto)
+      - me gustaría cotizar un portón de [tres](ancho) por [dos](alto)
+      - hola me gustaría cotizar un portón, se puede?
+      - quisiera cotizar un portón por favor
+      - buenas, quiero saber cuánto me sale un portón
 
   - intent: informar_medidas
     examples: |
@@ -170,6 +176,20 @@ nlu:
       - [4m](ancho) de ancho
       - serían [3](ancho) metros por [2](alto) metros
       - [400](ancho) por [220](alto) centímetros
+      - es de [tres](ancho) por [dos veinte](alto)
+      - [tres](ancho) por [dos veinte](alto)
+      - [cuatro](ancho) por [dos cincuenta](alto)
+      - son [cuatro](ancho) metros por [dos metros veinte](alto)
+      - mide [tres cincuenta](ancho) por [dos diez](alto)
+      - es de [dos](ancho) por [dos](alto)
+      - de [dos](ancho) por [dos veinte](alto)
+      - [dos veinte](alto) de alto
+      - [dos con cincuenta](alto) de alto
+      - [tres](ancho) de ancho y [dos treinta](alto) de alto
+      - el alto es [dos veinte](alto)
+      - es de [4](ancho) por [2 metros 20](alto)
+      - el espacio es de [cinco](ancho) por [dos cuarenta](alto)
+      - más o menos [tres](ancho) por [dos](alto) metros
       - 4 metros
       - 2,20
       - 3.5

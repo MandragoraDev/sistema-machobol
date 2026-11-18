@@ -6,6 +6,7 @@ import AppLayout from '../layouts/AppLayout.jsx';
 import DashboardPage from '../features/dashboard/DashboardPage.jsx';
 import InventarioPage from '../features/inventario/InventarioPage.jsx';
 import UsuariosPage from '../features/usuarios/UsuariosPage.jsx';
+import LogisticaPage from '../features/logistica/LogisticaPage.jsx';
 
 export default function AppRoutes() {
   const { usuario } = useAuth();
@@ -23,6 +24,7 @@ export default function AppRoutes() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/inventario" element={<InventarioPage />} />
+        <Route path="/logistica" element={<LogisticaPage />} />
         <Route
           path="/usuarios"
           element={

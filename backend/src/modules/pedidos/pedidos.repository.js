@@ -3,6 +3,7 @@ const { query } = require('../../config/db');
 const DETALLE = `
   SELECT p.id, p.codigo, p.ancho_m, p.alto_m, p.area_m2, p.precio_m2_aplicado, p.subtotal_base, p.total_adicionales,
          p.total_exacto, p.total_final, p.madera_id, p.madera_requerida_m2, p.canal, p.observaciones, p.creado_en,
+         to_char(p.fecha_instalacion, 'YYYY-MM-DD') AS fecha_instalacion,
          e.codigo AS estado, e.nombre AS estado_nombre, f.orden AS fase_orden, f.nombre AS fase_nombre,
          pr.nombre AS producto, pr.tipo_porton,
          c.id AS cliente_id, c.wa_id, c.nombre AS cliente_nombre, c.ci_nit,
@@ -68,19 +69,31 @@ async function insertarAdicionales(client, pedidoId, adicionales) {
   }
 }
 
-/** Bloquea el pedido (FOR UPDATE) y devuelve lo necesario para cobrarlo o confirmar su pago. */
+/** Bloquea el pedido (FOR UPDATE) y devuelve lo necesario para cobrarlo, confirmar su pago o moverlo de fase. */
 async function bloquear(client, { id, codigo }) {
   const { rows } = await client.query(
     `SELECT p.id, p.codigo, p.cliente_id, c.wa_id, p.total_final, p.madera_id, p.madera_requerida_m2, p.creado_en,
-            e.codigo AS estado, e.nombre AS estado_nombre
+            e.codigo AS estado, e.nombre AS estado_nombre, f.orden AS fase_orden
      FROM pedidos p
      JOIN estados_pedido e ON e.id = p.estado_id
      JOIN clientes c ON c.id = p.cliente_id
+     LEFT JOIN fases_produccion f ON f.id = p.fase_actual_id
      WHERE ${id ? 'p.id = $1' : 'p.codigo = $1'}
      FOR UPDATE OF p`,
     [id ?? codigo],
   );
   return rows[0] || null;
+}
+
+/**
+ * Quién hace el próximo cambio de estado y por qué. El trigger trg_pedidos_historial lo copia al historial
+ * inmutable. Vale hasta el final de la transacción: se llama antes de cada cambio.
+ */
+async function anotarCambio(client, { usuarioId = null, motivo = null }) {
+  await client.query(
+    "SELECT set_config('machobol.usuario_id', $1, true), set_config('machobol.motivo', $2, true)",
+    [usuarioId ? String(usuarioId) : '', motivo ?? ''],
+  );
 }
 
 async function cambiarEstado(client, id, estado) {
@@ -90,25 +103,27 @@ async function cambiarEstado(client, id, estado) {
   );
 }
 
-/** Pago confirmado: el pedido pasa a EN_PRODUCCION y entra a la fase 1. */
-async function iniciarProduccion(client, id) {
-  const { rows: [fase] } = await client.query(
-    `WITH fase AS (SELECT id, nombre FROM fases_produccion WHERE orden = 1)
+/** Lleva el pedido a un estado y una fase (por su orden, 1 a 11). Devuelve el nombre de la fase. */
+async function moverA(client, id, { estado, fase }) {
+  const { rows: [resultado] } = await client.query(
+    `WITH fase AS (SELECT id, nombre FROM fases_produccion WHERE orden = $3)
      UPDATE pedidos
-     SET estado_id = (SELECT id FROM estados_pedido WHERE codigo = 'EN_PRODUCCION'),
+     SET estado_id = (SELECT id FROM estados_pedido WHERE codigo = $2),
          fase_actual_id = (SELECT id FROM fase)
      WHERE id = $1
      RETURNING fase_actual_id AS id, (SELECT nombre FROM fase) AS nombre`,
-    [id],
+    [id, estado, fase],
   );
-  return fase;
+  return resultado;
 }
 
-async function registrarHistorial(client, { pedidoId, faseId, usuarioId = null, observacion }) {
-  await client.query(
-    'INSERT INTO historial_fases (pedido_id, fase_id, usuario_id, observacion) VALUES ($1, $2, $3, $4)',
-    [pedidoId, faseId, usuarioId, observacion],
-  );
+/** Pago confirmado: el pedido pasa a EN_PRODUCCION y entra a la fase 1. */
+function iniciarProduccion(client, id) {
+  return moverA(client, id, { estado: 'EN_PRODUCCION', fase: 1 });
+}
+
+async function programarInstalacion(codigo, fecha) {
+  await query('UPDATE pedidos SET fecha_instalacion = $2 WHERE codigo = $1', [codigo, fecha]);
 }
 
 module.exports = {
@@ -117,7 +132,9 @@ module.exports = {
   insertar,
   insertarAdicionales,
   bloquear,
+  anotarCambio,
   cambiarEstado,
+  moverA,
   iniciarProduccion,
-  registrarHistorial,
+  programarInstalacion,
 };

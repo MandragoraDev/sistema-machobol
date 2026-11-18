@@ -41,6 +41,19 @@ class ExtraerMedidas(unittest.TestCase):
         self.comprobar("400 por 220 centímetros", {"ancho": "4.00", "alto": "2.20"})
         self.comprobar("220 cm de alto", {"alto": "2.20"})
 
+    def test_centimetros_dichos_como_se_habla(self):
+        self.comprobar("es de tres por dos veinte", {"ancho": "3.00", "alto": "2.20"})
+        self.comprobar("cuatro metros por dos metros veinte", {"ancho": "4.00", "alto": "2.20"})
+        self.comprobar("dos cincuenta de alto", {"alto": "2.50"})
+        self.comprobar("dos con treinta y cinco de alto", {"alto": "2.35"})
+        self.comprobar("tres dieciséis por dos", {"ancho": "3.16", "alto": "2.00"})
+        self.comprobar("2 metros 20 de alto y 4 de ancho", {"ancho": "4.00", "alto": "2.20"})
+        self.comprobar("3m20 x 2m10", {"ancho": "3.20", "alto": "2.10"})
+        self.comprobar("4 metros 20 centimetros por 2", {"ancho": "4.20", "alto": "2.00"})
+        # Sin cambios en lo que ya se leía bien:
+        self.comprobar("4 m 2,20 de alto", {"ancho": "4.00", "alto": "2.20"})
+        self.comprobar("tres por dos", {"ancho": "3.00", "alto": "2.00"})
+
     def test_textos_sin_medidas(self):
         self.comprobar("quiero un portón", {})
         self.comprobar("ninguno, gracias", {})
@@ -57,6 +70,7 @@ class LeerMedida(unittest.TestCase):
         self.assertEqual(leer_medida(2.2), D("2.20"))
         self.assertEqual(leer_medida(["4", "2"]), D("4.00"))
         self.assertEqual(leer_medida("220"), D("2.20"))
+        self.assertEqual(leer_medida("dos veinte"), D("2.20"))
         self.assertIsNone(leer_medida("abc"))
         self.assertIsNone(leer_medida(None))
         self.assertIsNone(leer_medida(True))

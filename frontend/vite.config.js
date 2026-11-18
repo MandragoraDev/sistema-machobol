@@ -7,8 +7,9 @@ export default defineConfig({
   server: {
     port: 5173,
     // En desarrollo, las llamadas a /api se reenvían a la API: mismo origen, sin CORS.
+    // API_URL permite apuntar a otra API (p. ej. una de pruebas) sin tocar este archivo.
     proxy: {
-      '/api': 'http://localhost:4000',
+      '/api': process.env.API_URL || 'http://localhost:4000',
     },
   },
 });

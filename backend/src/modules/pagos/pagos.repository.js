@@ -49,9 +49,18 @@ async function cambiarEstado(client, id, estado) {
   );
 }
 
+/** Pago cobrado que quedó en revisión (sin madera), bloqueado para resolverlo. */
+async function bloquearRevisionDePedido(client, pedidoId) {
+  const { rows } = await client.query(
+    `SELECT ${COLUMNAS} FROM pagos_qr WHERE pedido_id = $1 AND estado = 'REVISION' ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+    [pedidoId],
+  );
+  return rows[0] || null;
+}
+
 async function buscarPorId(id) {
   const { rows } = await query(`SELECT ${COLUMNAS} FROM pagos_qr WHERE id = $1`, [id]);
   return rows[0] || null;
 }
 
-module.exports = { pendienteVigente, expirarVencidos, insertar, bloquear, cambiarEstado, buscarPorId };
+module.exports = { pendienteVigente, expirarVencidos, insertar, bloquear, cambiarEstado, bloquearRevisionDePedido, buscarPorId };

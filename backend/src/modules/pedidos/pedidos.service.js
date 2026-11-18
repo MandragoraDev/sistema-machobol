@@ -42,6 +42,7 @@ function presentar(p) {
       : null,
     canal: p.canal,
     observaciones: p.observaciones,
+    fecha_instalacion: p.fecha_instalacion,
     creado_en: p.creado_en,
     valido_hasta: validoHasta(p.creado_en),
   };
@@ -77,6 +78,10 @@ async function crearPedido(solicitud, { clienteId, canal, usuarioId = null, obse
 
   const codigo = await db.withTransaction(async (client) => {
     const nuevoCodigo = await pedidosRepository.siguienteCodigo(client);
+    await pedidosRepository.anotarCambio(client, {
+      usuarioId,
+      motivo: canal === 'WHATSAPP' ? 'Cotización pedida por WhatsApp' : 'Cotización creada en el panel',
+    });
     const id = await pedidosRepository.insertar(client, {
       codigo: nuevoCodigo,
       cliente_id: cliente.id,

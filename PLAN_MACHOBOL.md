@@ -174,7 +174,7 @@ BEGIN;
   INSERT INTO movimientos_inventario (tipo, cantidad_m2, pedido_id, ...) VALUES ('SALIDA', ...);
   UPDATE pagos_qr SET estado = 'CONFIRMADO', confirmado_en = now() WHERE ...;
   UPDATE pedidos  SET estado = 'EN_PRODUCCION', fase_actual = 1 WHERE ...;
-  INSERT INTO historial_fases (pedido_id, fase_id, ...) VALUES ($pedido, 1, ...);
+  -- el trigger trg_pedidos_historial registra el cambio en historial_pedido (Sprint 5)
 COMMIT;
 ```
 
@@ -187,10 +187,14 @@ COMMIT;
 
 Son dos dimensiones distintas:
 
-- **Estado comercial** (`estados_pedido`): `COTIZADO → PENDIENTE_PAGO → EN_PRODUCCION → ENTREGADO`,
+- **Estado** (`estados_pedido`): `COTIZADO → PENDIENTE_PAGO → EN_PRODUCCION → EN_RUTA → ENTREGADO`,
   más `CANCELADO` y `REVISION_STOCK`.
-- **Fase de producción** (`fases_produccion`): solo aplica a pedidos `EN_PRODUCCION`. Avanza **estrictamente
-  en orden** (1 → 2 → … → 11). Al cerrar la fase 11, el pedido pasa a `ENTREGADO`.
+- **Fase de producción** (`fases_produccion`): avanza **estrictamente en orden** (1 → 2 → … → 11), de a un paso.
+  Las fases 1 a 10 transcurren `EN_PRODUCCION` (en el taller). Al cerrar la fase 10 (control de calidad y despacho) el
+  pedido sale `EN_RUTA` y entra a la fase 11 (instalación); al cerrarla queda `ENTREGADO` (entregado / instalado).
+- **Trazabilidad (Sprint 5):** cada alta y cada cambio de estado o de fase queda en `historial_pedido`, tabla inmutable
+  (un trigger rechaza `UPDATE` y `DELETE`), con la hora exacta (`clock_timestamp()`), el usuario y el motivo. Lo escribe
+  un trigger de `pedidos`, así que ningún camino del código puede cambiar un pedido sin dejar rastro.
 
 Fases definitivas (confirmadas el 2026-11-02):
 
@@ -226,7 +230,7 @@ Fases definitivas (confirmadas el 2026-11-02):
 ## 3. Modelo de datos (PostgreSQL)
 
 Las tablas incluyen `id` (PK, `INTEGER` identity), `creado_en` y `actualizado_en` (este último lo mantiene un trigger).
-Excepción: las bitácoras de solo inserción (`movimientos_inventario`, `historial_fases`, `mensajes_whatsapp`) no llevan `actualizado_en`.
+Excepción: las bitácoras de solo inserción (`movimientos_inventario`, `historial_pedido`, `mensajes_whatsapp`) no llevan `actualizado_en`.
 Los montos van en Bs como `NUMERIC(12,2)`, y los m² en `NUMERIC(12,4)`.
 Cada regla de integridad tiene un nombre (`ck_*`, `uq_*`, `ux_*`), así la API puede traducir cada violación a un mensaje claro.
 
@@ -244,14 +248,14 @@ Cada regla de integridad tiene un nombre (`ck_*`, `uq_*`, `ux_*`), así la API p
 | `fases_produccion` | Fases 1–11 | `orden` UNIQUE CHECK 1–11, `nombre`, `descripcion` |
 | `pedidos` | Cotización → pedido | `codigo` UNIQUE (`MCH-AAAA-NNNN`), `cliente_id`, `producto_id`, `alto_m`, `ancho_m`, `area_m2`, `precio_m2_aplicado`, `subtotal_base`, `total_adicionales` (accesorios + recargos), `total_exacto`, `total_final`, `madera_id`, `madera_requerida_m2`, `estado_id`, `fase_actual_id` NULL, `canal` ENUM(`WHATSAPP`,`PANEL`), `creado_por` NULL |
 | `pedido_accesorios` | Accesorios del pedido | PK(`pedido_id`,`accesorio_id`), `precio_aplicado` |
-| `historial_fases` | Trazabilidad del Kanban | `pedido_id`, `fase_id`, `usuario_id`, `observacion` |
+| `historial_pedido` | Trazabilidad inmutable (Sprint 5; reemplazó a `historial_fases`) | `pedido_id`, `estado_anterior_id`, `estado_nuevo_id`, `fase_anterior_id`, `fase_nueva_id`, `usuario_id`, `motivo`, `creado_en` |
 | `pagos_qr` | Cobros QR (pago total, en Bs) | `pedido_id` FK, `transaccion_id` UNIQUE, `monto`, `estado` ENUM(`PENDIENTE`,`CONFIRMADO`,`EXPIRADO`,`FALLIDO`,`REVISION`), `qr_payload`, `expira_en`, `confirmado_en` |
 | `mensajes_whatsapp` | Auditoría y deduplicación | `wa_message_id` UNIQUE, `cliente_id`, `direccion` ENUM(`IN`,`OUT`), `contenido` JSONB |
 
 **Tablas añadidas al esquema solicitado y su motivo:**
 
 - `pedido_accesorios`: guardar los IDs de accesorios como arreglo dentro de `pedidos` impediría las FK y el snapshot de precio. Una tabla intermedia resuelve ambas cosas.
-- `historial_fases`: registra quién movió cada pedido y cuándo; el Kanban y las auditorías lo necesitan.
+- `historial_pedido`: registra quién movió cada pedido, cuándo y por qué; el tablero logístico y las auditorías lo necesitan.
 - `mensajes_whatsapp`: Meta reenvía webhooks; sin esta tabla un mensaje se procesaría dos veces.
 
 ---
@@ -405,22 +409,38 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 5 — Tablero Kanban logístico (11 fases) e integración final
+### Sprint 5 — Calendario logístico, trazabilidad y pruebas 🟡 (implementado el 2026-11-11, pendiente de confirmación)
 
-**Objetivo:** visibilidad de la producción y el sistema integrado de punta a punta.
+**Objetivo:** visibilidad de la producción y la entrega (R-13), trazabilidad inmutable y entorno de pruebas técnicas.
 
-- [ ] Endpoints de logística:
-  - `GET /api/logistica/tablero`: pedidos agrupados por fase, con días en la fase actual.
-  - `PATCH /api/pedidos/:id/fase`: solo avanza a la fase siguiente. El Admin puede retroceder con motivo, y cada cambio se registra en `historial_fases`.
-- [ ] React Kanban: 11 columnas con desplazamiento horizontal y arrastrar y soltar (`@dnd-kit`).
-  - Solo se puede soltar en la columna siguiente.
-  - Tarjetas con código, cliente, producto, medidas y días en la fase.
-  - Filtros y panel de detalle con historial.
-- [ ] Al cerrar la fase 11, el pedido pasa a `ENTREGADO`.
+- [x] Estado operativo: `EN_PRODUCCION` (fases 1–10) → `EN_RUTA` (fase 11, despacho e instalación) → `ENTREGADO`
+  (entregado / instalado). Migración `1793620806000` con el estado `EN_RUTA` y la fecha de instalación del pedido.
+- [x] Trazabilidad: `historial_pedido` inmutable (trigger que rechaza `UPDATE`/`DELETE`), escrito por un trigger de
+  `pedidos` en cada alta y cada cambio de estado o fase, con hora exacta, usuario y motivo. Reemplaza a `historial_fases`.
+- [x] Endpoints de logística (transaccionales, con el pedido bloqueado `FOR UPDATE`):
+  - `GET /api/logistica/tablero` (todos los roles): pedidos pagados con su etapa, días en ella y el paso siguiente.
+  - `GET /api/logistica/pedidos/:codigo`: detalle con el historial completo.
+  - `POST …/avanzar` (Admin, Taller) y `POST …/retroceder` (Admin, motivo obligatorio): de a un paso. El cliente
+    envía la etapa que veía (`desde`); si otro usuario movió el pedido, se rechaza con 409 en vez de saltar una fase.
+  - `PATCH …/instalacion` (Admin, Taller): fecha de instalación (calendario).
+  - `POST …/reintentar-produccion` (Admin): un pedido cobrado sin madera (`REVISION_STOCK`) entra a producción al reponer stock.
+- [x] React: página **Logística y trazabilidad** con tablero Kanban simple (columnas por estado operativo, fases dentro de
+  cada tarjeta), vista calendario (tabla por fecha de instalación, con filtro) y ficha con acciones por rol e historial.
+  Tarjeta "Pedidos en curso" en el Dashboard.
+- [x] Al cerrar la fase 11, el pedido pasa a `ENTREGADO`. Avisos por WhatsApp al salir en ruta y al quedar instalado.
+- [x] Pruebas técnicas: `npm run pruebas:rendimiento` (autocannon, latencias p50–p99 e informe Markdown),
+  `npm run demo:pedidos` (pedidos pagados de demostración) y guía UAT con 20 casos en [docs/UAT_MACHOBOL.md](docs/UAT_MACHOBOL.md).
 - [ ] Bot: `consultar_estado_pedido` responde con la fase actual del pedido.
-- [ ] Notificaciones por WhatsApp en los hitos (inicio de producción, listo para instalar, instalado), con **plantillas aprobadas por Meta**, obligatorias fuera de la ventana de 24 h.
-- [ ] Dashboard final: pedidos por estado y fase, ventas del mes y pagos en revisión.
-- [ ] Endurecimiento: CORS restringido, revisión de variables de entorno, logs estructurados, *seeds* de demostración y README completo de instalación.
+- [ ] Plantillas de WhatsApp aprobadas por Meta para los avisos fuera de la ventana de 24 h (hoy son mensajes de texto).
+- [ ] Dashboard final: ventas del mes y pagos en revisión.
+- [ ] Endurecimiento: CORS restringido, revisión de variables de entorno y README de instalación en producción.
+
+**Verificación realizada:**
+- 144 pruebas Jest (14 nuevas de logística: recorrido completo de las 11 fases, historial con hora exacta, usuario y motivo,
+  avances simultáneos, permisos por rol, inmutabilidad del historial y reintento tras reponer madera).
+- 19 comprobaciones en Edge con los tres roles contra `machobol_test`: tablero, avance con observación, retroceso con
+  motivo, entrega, fecha de instalación, calendario, conflicto por doble avance y vista móvil.
+- Tiempos de respuesta (base de pruebas, 10 conexiones): endpoints de lectura con p97,5 entre 2 y 10 ms; inicio de sesión ≈ 225 ms.
 
 **Criterios de aceptación:**
 - Prueba E2E: mensaje simulado → cotización → pago → fase 1 → … → fase 11 → `ENTREGADO`, con stock e historial consistentes.

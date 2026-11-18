@@ -5,6 +5,7 @@ import { ETIQUETA_ROL } from '../utils/formato.js';
 // Sin `roles`, el enlace es visible para todos los usuarios con sesión.
 const NAVEGACION = [
   { ruta: '/dashboard', nombre: 'Dashboard' },
+  { ruta: '/logistica', nombre: 'Logística y trazabilidad' },
   { ruta: '/inventario', nombre: 'Inventario de madera' },
   { ruta: '/usuarios', nombre: 'Usuarios', roles: ['ADMIN'] },
 ];

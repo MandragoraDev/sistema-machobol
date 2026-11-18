@@ -15,6 +15,25 @@ El plan completo, las reglas de negocio y el modelo de datos están en [PLAN_MAC
 - PostgreSQL 16 o superior
 - Python 3.10 (solo para el asistente de Rasa)
 
+## Levantar el proyecto (día a día)
+
+Con todo ya instalado, doble clic en **`iniciar.cmd`** (raíz del proyecto). Comprueba que PostgreSQL esté activo, abre la
+API, Rasa, el servidor de acciones y el panel, cada uno en su ventana, y avisa cuando todo responde. Para detener todo,
+cierra esas ventanas. `iniciar.cmd -Recarga` levanta la API con recarga automática (útil al programar el backend; cada
+reinicio corta las respuestas del bot en curso).
+
+A mano, en cuatro terminales:
+
+| Servicio | Carpeta | Comando |
+|---|---|---|
+| API (4000) | `backend` | `npm start` (o `npm run dev` para recarga automática) |
+| Acciones Rasa (5055) | `rasa_bot` | `.venv\Scripts\rasa run actions --port 5055` |
+| Rasa (5005) | `rasa_bot` | `.venv\Scripts\rasa run --interface 127.0.0.1 --port 5005` |
+| Panel (5173) | `frontend` | `npm run dev` |
+
+Panel: <http://localhost:5173>. Chat de prueba: `npm run whatsapp:simular` en `backend`.
+Después de un `git pull`, ejecuta `npm run db:migrate` en `backend` (y `rasa train` en `rasa_bot` si cambió `data/` o `domain.yml`).
+
 ## Puesta en marcha
 
 ### 1. Base de datos y API
@@ -132,6 +151,20 @@ Cada cotización crea un pedido `MCH-AAAA-NNNN` con los precios congelados y su 
 
 Fuera del chat: `npm run pagos:simular -- MCH-2026-0001` (o `--fallido`) cobra el QR vigente de un pedido.
 
+### 5. Logística, trazabilidad y pruebas
+
+En el panel, **Logística y trazabilidad** muestra los pedidos pagados: en producción (fases 1 a 10 del taller), en ruta
+a instalación (fase 11) y entregados. Admin y Taller los avanzan de a un paso; el Admin puede retroceder con motivo;
+Ventas solo consulta. Cada cambio queda en un historial inmutable con fecha, hora exacta, usuario y motivo.
+
+```bash
+cd backend
+npm run demo:pedidos            # 4 pedidos pagados de demostración, en distintas etapas
+npm run pruebas:rendimiento     # tiempos de respuesta de los endpoints principales (API levantada)
+```
+
+Las pruebas de aceptación (UAT) y la medición de tiempos se describen en [docs/UAT_MACHOBOL.md](docs/UAT_MACHOBOL.md).
+
 ## Scripts del backend
 
 | Script | Qué hace |
@@ -146,4 +179,6 @@ Fuera del chat: `npm run pagos:simular -- MCH-2026-0001` (o `--fallido`) cobra e
 | `npm run db:migration:create -- <nombre>` | Crea una nueva migración SQL |
 | `npm run whatsapp:simular` | Simula un cliente de WhatsApp contra el webhook local (ver las secciones 3 y 4) |
 | `npm run pagos:simular -- <código>` | Simula el cobro (o con `--fallido`, el rechazo) del QR vigente de un pedido |
+| `npm run demo:pedidos` | Crea pedidos pagados de demostración en distintas etapas (consume madera; no se pueden borrar) |
+| `npm run pruebas:rendimiento` | Mide los tiempos de respuesta de los endpoints principales y guarda un informe (ver docs/UAT) |
 | `npm run tunel` | Abre un túnel HTTPS público hacia la API con cloudflared, para el webhook de Meta |

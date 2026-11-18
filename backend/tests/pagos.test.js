@@ -25,7 +25,7 @@ describeConBD('Pagos QR y transacción ACID (PLAN §2.3)', () => {
   });
 
   beforeEach(async () => {
-    await db.query('TRUNCATE historial_fases, movimientos_inventario, pagos_qr, pedido_accesorios, pedidos, mensajes_whatsapp, clientes RESTART IDENTITY CASCADE');
+    await db.query('TRUNCATE historial_pedido, movimientos_inventario, pagos_qr, pedido_accesorios, pedidos, mensajes_whatsapp, clientes RESTART IDENTITY CASCADE');
     cliente = await crearCliente();
     await fijarStockCedro(20);
   });
@@ -48,7 +48,7 @@ describeConBD('Pagos QR y transacción ACID (PLAN §2.3)', () => {
       `SELECT e.codigo AS pedido, f.orden AS fase, m.stock_actual_m2 AS stock,
               (SELECT string_agg(estado::text, ',' ORDER BY id) FROM pagos_qr WHERE pedido_id = p.id) AS pagos,
               (SELECT count(*)::int FROM movimientos_inventario WHERE pedido_id = p.id AND tipo = 'SALIDA') AS salidas,
-              (SELECT count(*)::int FROM historial_fases WHERE pedido_id = p.id) AS historial
+              (SELECT count(*)::int FROM historial_pedido h JOIN estados_pedido eh ON eh.id = h.estado_nuevo_id WHERE h.pedido_id = p.id AND eh.codigo = 'EN_PRODUCCION') AS historial
        FROM pedidos p
        JOIN estados_pedido e ON e.id = p.estado_id
        LEFT JOIN fases_produccion f ON f.id = p.fase_actual_id
@@ -162,7 +162,7 @@ describeConBD('Pagos QR y transacción ACID (PLAN §2.3)', () => {
     it('si falla cualquier paso dentro de la transacción no cambia ni el stock, ni el pago, ni el pedido', async () => {
       const codigo = await nuevoPedido();
       const { body: pago } = await generarQr(codigo);
-      const espia = jest.spyOn(pedidosRepository, 'registrarHistorial').mockRejectedValueOnce(new Error('Falla simulada al escribir el historial'));
+      const espia = jest.spyOn(pedidosRepository, 'iniciarProduccion').mockRejectedValueOnce(new Error('Falla simulada al iniciar la producción'));
 
       const res = await callback(pago);
       expect(res.status).toBe(500);

@@ -390,7 +390,12 @@ class ValidarFormularioCotizacion(FormValidationAction):
     ) -> Dict[Text, Any]:
         tipo = _normalizar_tipo(value)
         if tipo is None:
-            dispatcher.utter_message(response="utter_tipo_porton_invalido")
+            # Una entidad dudosa (DIET leyó "dos" como tipo en "tres por dos veinte") no borra el tipo ya elegido.
+            previo = _normalizar_tipo(_valor_previo(tracker, "tipo_porton"))
+            if previo:
+                return {"tipo_porton": previo}
+            if tracker.get_slot("requested_slot") == "tipo_porton":
+                dispatcher.utter_message(response="utter_tipo_porton_invalido")
             return {"tipo_porton": None}
         # Si eligió la madera en un mensaje anterior (p. ej. antes que el tipo), debe tener precio para este tipo.
         # Si la nombró en este mismo mensaje, la revisa validate_tipo_madera.
@@ -401,10 +406,16 @@ class ValidarFormularioCotizacion(FormValidationAction):
     async def validate_tipo_madera(
         self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
     ) -> Dict[Text, Any]:
-        return await self._madera_para(value, _normalizar_tipo(tracker.get_slot("tipo_porton")), dispatcher)
+        tipo = _normalizar_tipo(tracker.get_slot("tipo_porton"))
+        # Si el bot no está preguntando la madera y ya había una elegida, una entidad dudosa no la borra ni genera avisos.
+        previa = {"tipo_madera": _valor_previo(tracker, "tipo_madera"), "madera_id": _valor_previo(tracker, "madera_id")}
+        if previa["madera_id"] and tracker.get_slot("requested_slot") != "tipo_madera":
+            resultado = await self._madera_para(value, tipo, dispatcher, avisar=False)
+            return resultado if resultado["madera_id"] else previa
+        return await self._madera_para(value, tipo, dispatcher)
 
     @staticmethod
-    async def _madera_para(nombre: Any, tipo: Optional[Text], dispatcher: CollectingDispatcher) -> Dict[Text, Any]:
+    async def _madera_para(nombre: Any, tipo: Optional[Text], dispatcher: CollectingDispatcher, avisar: bool = True) -> Dict[Text, Any]:
         """{tipo_madera, madera_id} si la madera existe y tiene precio para ese tipo de portón; si no, ambos en None."""
         vacio = {"tipo_madera": None, "madera_id": None}
         try:
@@ -416,6 +427,8 @@ class ValidarFormularioCotizacion(FormValidationAction):
         madera = buscar_madera(nombre if isinstance(nombre, str) else None, maderas)
         if madera:
             return {"tipo_madera": madera["nombre"], "madera_id": madera["id"]}
+        if not avisar:
+            return vacio
         opciones = ", ".join(m["nombre"] for m in maderas)
         porton = f" para portones {tipo}s" if tipo else ""
         dispatcher.utter_message(text=f"No tenemos «{nombre}»{porton}. Trabajamos con: {opciones}." if opciones else "Por ahora no tengo maderas disponibles.")

@@ -1,4 +1,5 @@
-"""Lectura de las medidas que escribe el cliente: "4 x 2,20", "2.20 m de alto", "ancho 4", "dos por dos y medio".
+"""Lectura de las medidas que escribe el cliente: "4 x 2,20", "2.20 m de alto", "ancho 4", "dos por dos y medio",
+"tres por dos veinte", "2 metros 20".
 
 Complementa a DIET, que no puede separar "4x2,20" porque el tokenizador lo deja como una sola palabra.
 Convención: si el cliente da dos medidas sin decir cuál es cuál, la primera es el ancho y la segunda
@@ -18,10 +19,29 @@ _CENTIMETRO = Decimal("0.01")
 
 _PALABRAS = {"uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10}
 
-# Una medida: número en cifras o en palabras, "y medio" opcional y unidad opcional.
+# Centímetros dichos después de los metros, como se habla: "dos veinte" = 2,20; "dos treinta y cinco" = 2,35.
+_UNIDADES = {"un": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9}
+_DECENAS = {"veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50, "sesenta": 60, "setenta": 70, "ochenta": 80, "noventa": 90}
+_CENTIMETROS = {
+    "diez": 10, "once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciseis": 16, "diecisiete": 17,
+    "dieciocho": 18, "diecinueve": 19, "veintiuno": 21, "veintidos": 22, "veintitres": 23, "veinticuatro": 24,
+    "veinticinco": 25, "veintiseis": 26, "veintisiete": 27, "veintiocho": 28, "veintinueve": 29, **_DECENAS,
+}
+_CENTIMOS_PALABRA = (
+    r"(?:" + "|".join(_DECENAS) + r")\s+y\s+(?:" + "|".join(_UNIDADES) + r")"
+    r"|" + "|".join(sorted(_CENTIMETROS, key=len, reverse=True))
+)
+
+# Una medida: número en cifras o en palabras, y luego, opcionalmente:
+#   "y medio" · centímetros en palabras ("dos veinte", "dos metros veinte", "dos con veinte")
+#   · centímetros en dos cifras tras la unidad ("2 metros 20", "2m20") · y la unidad.
 _MEDIDA = re.compile(
     r"(?<![\d.,])(?P<numero>\d+(?:[.,]\d+)?|\b(?:" + "|".join(_PALABRAS) + r")\b)"
-    r"(?P<medio>\s+y\s+medio\b)?"
+    r"(?:"
+    r"(?P<medio>\s+y\s+medio\b)"
+    r"|\s+(?:(?:metros?|mts?|m|con|punto|coma)\s+)?(?P<centimos>\b(?:" + _CENTIMOS_PALABRA + r")\b)"
+    r"|\s*(?:metros?|mts?|m|con)\s*(?P<centimos_cifra>\d{2})(?![\d.,])"
+    r")?"
     r"(?:\s*(?P<unidad>metros?|mts?|m|centimetros?|cms?)\b)?"
 )
 # "2,20 de alto" (la etiqueta va después de la medida)…
@@ -41,9 +61,20 @@ def normalizar_texto(texto: str) -> str:
     return "".join(c for c in descompuesto if not unicodedata.combining(c))
 
 
+def _centimos(texto: str) -> int:
+    if texto.isdigit():
+        return int(texto)
+    decena, _, unidad = re.sub(r"\s+", " ", texto).partition(" y ")
+    return _DECENAS[decena] + _UNIDADES[unidad] if unidad else _CENTIMETROS[decena]
+
+
 def _a_metros(medida: re.Match) -> Decimal:
     numero = medida["numero"]
     valor = Decimal(_PALABRAS[numero]) if numero in _PALABRAS else Decimal(numero.replace(",", "."))
+    centimos = medida["centimos"] or medida["centimos_cifra"]
+    if centimos:
+        # Metros y centímetros: "dos veinte" → 2,20 (la unidad, si la hay, ya no cambia la escala).
+        return (valor + Decimal(_centimos(centimos)) / 100).quantize(_CENTIMETRO, rounding=ROUND_HALF_UP)
     if medida["medio"]:
         valor += Decimal("0.5")
     unidad = medida["unidad"] or ""

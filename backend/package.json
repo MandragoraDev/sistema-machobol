@@ -16,6 +16,8 @@
     "db:seed": "node src/db/seeds/run.js",
     "whatsapp:simular": "node scripts/simular-whatsapp.js",
     "pagos:simular": "node scripts/simular-pago.js",
+    "demo:pedidos": "node scripts/demo-pedidos.js",
+    "pruebas:rendimiento": "node scripts/pruebas-rendimiento.js",
     "tunel": "cloudflared tunnel --url http://localhost:4000"
   },
   "engines": {
@@ -38,6 +40,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "autocannon": "^9.0.0",
     "jest": "^30.5.2",
     "pino-pretty": "^13.2.0",
     "supertest": "^7.3.1"

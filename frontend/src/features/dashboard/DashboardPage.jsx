@@ -7,6 +7,7 @@ import AlertasStock from './AlertasStock.jsx';
 import UltimosMovimientos from './UltimosMovimientos.jsx';
 import StockDisponible from './StockDisponible.jsx';
 import EstadoSistema from './EstadoSistema.jsx';
+import PedidosEnCurso from './PedidosEnCurso.jsx';
 
 const DESCRIPCION_POR_ROL = {
   ADMIN: 'Resumen general del inventario y del sistema.',
@@ -37,6 +38,7 @@ export default function DashboardPage() {
       />
 
       <ErrorApi error={inventario.error} />
+      <PedidosEnCurso />
       <ResumenInventario resumen={inventario.datos?.resumen} />
 
       {rol === 'VENTAS' ? (

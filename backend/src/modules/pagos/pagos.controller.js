@@ -5,7 +5,7 @@ const pasarela = require('./pasarela');
 
 async function crearQr(req, res) {
   const { pedido } = validar(esquemas.crearQr, req.body);
-  const cobro = await pagosService.crearCobroQr(pedido);
+  const cobro = await pagosService.crearCobroQr(pedido, { usuarioId: req.usuario.id });
   res.status(cobro.nuevo ? 201 : 200).json(await pagosService.presentarCobro(cobro));
 }
 

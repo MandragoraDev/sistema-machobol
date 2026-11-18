@@ -35,8 +35,9 @@ const ACCESORIOS = [
 const ESTADOS_PEDIDO = [
   { codigo: 'COTIZADO', nombre: 'Cotizado', descripcion: 'Cotización emitida, aún sin solicitud de pago.' },
   { codigo: 'PENDIENTE_PAGO', nombre: 'Pendiente de pago', descripcion: 'QR generado, esperando la confirmación del banco.' },
-  { codigo: 'EN_PRODUCCION', nombre: 'En producción', descripcion: 'Pago confirmado y madera descontada; avanza por las 11 fases.' },
-  { codigo: 'ENTREGADO', nombre: 'Entregado', descripcion: 'Fase 11 (Instalación) completada.' },
+  { codigo: 'EN_PRODUCCION', nombre: 'En producción', descripcion: 'Pago confirmado y madera descontada; avanza por las fases 1 a 10.' },
+  { codigo: 'EN_RUTA', nombre: 'En ruta / instalación', descripcion: 'Despachado del taller; en camino o en instalación (fase 11).' },
+  { codigo: 'ENTREGADO', nombre: 'Entregado / instalado', descripcion: 'Fase 11 (instalación) completada.' },
   { codigo: 'CANCELADO', nombre: 'Cancelado', descripcion: 'Pedido anulado.' },
   { codigo: 'REVISION_STOCK', nombre: 'Revisión de stock', descripcion: 'Pago recibido sin madera suficiente; requiere acción del Admin.' },
 ];
