@@ -3,9 +3,6 @@ const { nombreMadera } = require('../../utils/formato');
 const cotizadorRepository = require('./cotizador.repository');
 const { cotizarPorton, maderaRequerida, aEntero } = require('./cotizador.calculo');
 
-// Recargo que se aplica solo si la entrega es fuera de la ciudad (a más de 45 min).
-const CODIGO_TRANSPORTE = 'TRANSPORTE_VIATICOS';
-
 async function productoActivo(tipoPorton) {
   const producto = await cotizadorRepository.productoPorTipo(tipoPorton);
   if (!producto) {
@@ -14,7 +11,10 @@ async function productoActivo(tipoPorton) {
   return producto;
 }
 
-/** Cotiza un portón con el precio por m² de la madera elegida y los precios vigentes del catálogo. No guarda nada. */
+/**
+ * Cotiza un portón con el precio por m² de la madera elegida y los precios vigentes del catálogo. No guarda nada.
+ * `fuera_ciudad` (instalación a 45 minutos o más) no suma nada: el costo del traslado se acuerda en la reunión.
+ */
 async function cotizar({ tipo_porton, madera_id, ancho_m, alto_m, accesorios = [], fuera_ciudad = false }) {
   const producto = await productoActivo(tipo_porton);
   const madera = await cotizadorRepository.maderaConPrecio(producto.id, madera_id);
@@ -26,20 +26,11 @@ async function cotizar({ tipo_porton, madera_id, ancho_m, alto_m, accesorios = [
   }
 
   const codigos = [...new Set(accesorios)];
-  const filas = await cotizadorRepository.accesoriosActivosPorCodigo(fuera_ciudad ? [...codigos, CODIGO_TRANSPORTE] : codigos);
+  const filas = await cotizadorRepository.accesoriosActivosPorCodigo(codigos);
   const porCodigo = new Map(filas.map((fila) => [fila.codigo, fila]));
   const desconocidos = codigos.filter((codigo) => !porCodigo.has(codigo));
   if (desconocidos.length > 0) {
     throw new AppError(400, `Accesorios desconocidos o inactivos: ${desconocidos.join(', ')}.`);
-  }
-
-  const recargos = [];
-  if (fuera_ciudad) {
-    const transporte = porCodigo.get(CODIGO_TRANSPORTE);
-    if (transporte?.tipo_adicional !== 'RECARGO') {
-      throw new AppError(409, `El recargo ${CODIGO_TRANSPORTE} no está activo en el catálogo.`);
-    }
-    recargos.push(transporte);
   }
 
   const calculo = cotizarPorton({
@@ -48,7 +39,6 @@ async function cotizar({ tipo_porton, madera_id, ancho_m, alto_m, accesorios = [
     anchoM: ancho_m,
     altoM: alto_m,
     accesorios: codigos.map((codigo) => porCodigo.get(codigo)),
-    recargos,
   });
   return {
     producto: { id: producto.id, nombre: producto.nombre, tipo_porton: producto.tipo_porton },

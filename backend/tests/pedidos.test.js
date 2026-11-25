@@ -28,7 +28,7 @@ describeConBD('Cotizador, precios por madera y pedidos desde el panel', () => {
   const crearPedido = (cuerpo = {}) => conToken(ventas, 'post', '/api/pedidos').send({ ...SOLICITUD, cliente_id: cliente.id, ...cuerpo });
 
   describe('POST /api/cotizaciones/calcular', () => {
-    it('devuelve el desglose exacto en Bs, sin redondeo y sin guardar nada', async () => {
+    it('devuelve el desglose exacto en Bs, sin redondeo y sin guardar nada; fuera de la ciudad no suma nada', async () => {
       const res = await conToken(ventas, 'post', '/api/cotizaciones/calcular').send({ ...SOLICITUD, fuera_ciudad: true });
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -39,11 +39,11 @@ describeConBD('Cotizador, precios por madera y pedidos desde el panel', () => {
         subtotal_base: '21736.00',
         adicionales: [
           { codigo: 'MOTOR_CORREDIZO', tipo_adicional: 'ACCESORIO', precio: '1740.00' },
-          { codigo: 'TRANSPORTE_VIATICOS', tipo_adicional: 'RECARGO', precio: '150.00' },
         ],
-        total_adicionales: '1890.00',
-        total_exacto: '23626.00',
-        total_final: '23626.00',
+        fuera_ciudad: true,
+        total_adicionales: '1740.00',
+        total_exacto: '23476.00',
+        total_final: '23476.00',
         madera_requerida_m2: '9.6800',
       });
       expect(res.body.ajuste_redondeo).toBeUndefined();
@@ -173,7 +173,8 @@ describeConBD('Cotizador, precios por madera y pedidos desde el panel', () => {
     it('el Taller puede consultar un pedido; los códigos inexistentes o mal escritos fallan', async () => {
       const res = await conToken(taller, 'get', `/api/pedidos/${codigo.toLowerCase()}`);
       expect(res.status).toBe(200);
-      expect(res.body.adicionales.map((a) => a.codigo)).toEqual(['MOTOR_CORREDIZO', 'TRANSPORTE_VIATICOS']);
+      expect(res.body.adicionales.map((a) => a.codigo)).toEqual(['MOTOR_CORREDIZO']);
+      expect(res.body).toMatchObject({ fuera_ciudad: true, total_final: '23476.00', precio_acordado: false, reunion: { preferencia: null, fecha: null } });
       expect((await conToken(taller, 'get', `/api/pedidos/MCH-${ANIO}-9999`)).status).toBe(404);
       expect((await conToken(taller, 'get', '/api/pedidos/PEDIDO-1')).status).toBe(400);
     });

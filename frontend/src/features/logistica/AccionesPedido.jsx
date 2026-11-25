@@ -97,7 +97,7 @@ export default function AccionesPedido({ pedido, rol, onHecho }) {
       {esAdmin && pedido.estado === 'REVISION_STOCK' && (
         <div className="space-y-2 border-t border-stone-200 pt-4">
           <p className="text-sm text-stone-700">
-            El cliente ya pagó, pero faltaba madera. Cuando repongas el stock en Inventario, inicia la producción:
+            El anticipo ya está cubierto, pero faltaba madera. Cuando repongas el stock en Inventario, inicia la producción:
           </p>
           <Boton
             variante="exito"

@@ -7,7 +7,6 @@ const rasa = require('../src/modules/whatsapp/whatsapp.rasa');
 const { firmar } = require('../src/modules/whatsapp/whatsapp.firma');
 const { esperarPendientes } = require('../src/utils/segundoPlano');
 const pedidosService = require('../src/modules/pedidos/pedidos.service');
-const pagosService = require('../src/modules/pagos/pagos.service');
 const { db, describeConBD, reiniciarBD, crearCliente, fijarStockCedro, idCedro } = require('./helpers/bd');
 
 const WA_ID = '59171234567';
@@ -170,34 +169,32 @@ describeConBD('POST /api/webhooks/whatsapp: procesamiento', () => {
   });
 
   describe('adjuntos que pide el asistente (respuesta custom de Rasa)', () => {
-    async function pedidoCon(waId, { conQr = false } = {}) {
+    async function pedidoCon(waId) {
       const cliente = (await db.query('SELECT id FROM clientes WHERE wa_id = $1', [waId])).rows[0] ?? await crearCliente(waId, 'Otro');
       const { codigo } = await pedidosService.crearPedido(
         { tipo_porton: 'CORREDIZO', madera_id: await idCedro(), ancho_m: 4, alto_m: 2.2, accesorios: ['MOTOR_CORREDIZO'], fuera_ciudad: false },
         { clienteId: cliente.id, canal: 'WHATSAPP' },
       );
-      if (conQr) await pagosService.crearCobroQr(codigo);
       return codigo;
     }
 
     beforeEach(() => fijarStockCedro(50));
 
-    it('envía la proforma en PDF y el QR de pago como imagen', async () => {
+    it('envía la proforma en PDF', async () => {
       await crearCliente(WA_ID);
-      const codigo = await pedidoCon(WA_ID, { conQr: true });
+      const codigo = await pedidoCon(WA_ID);
       rasa.conversar.mockResolvedValue([
         { text: `Cotización ${codigo}` },
         { custom: { adjunto: 'proforma', pedido: codigo } },
-        { custom: { adjunto: 'qr_pago', pedido: codigo } },
       ]);
 
       await enviar(notificacion());
       await esperarPendientes();
 
-      const [texto, documento, imagen] = (await mensajes('OUT')).map((m) => m.contenido);
-      expect(texto.text.body).toBe(`Cotización ${codigo}`);
-      expect(documento).toEqual({ type: 'document', document: { filename: `Proforma ${codigo}.pdf`, caption: `Proforma ${codigo}` } });
-      expect(imagen).toEqual({ type: 'image', image: { caption: `QR de pago del pedido ${codigo}: 23.476,00 Bs` } });
+      const salientes = (await mensajes('OUT')).map((m) => m.contenido);
+      expect(salientes).toHaveLength(2);
+      expect(salientes[0].text.body).toBe(`Cotización ${codigo}`);
+      expect(salientes[1]).toEqual({ type: 'document', document: { filename: `Proforma ${codigo}.pdf`, caption: `Proforma ${codigo}` } });
     });
 
     it('no adjunta documentos de pedidos de otro cliente', async () => {

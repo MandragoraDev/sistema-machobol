@@ -3,7 +3,7 @@ const { z, decimal } = require('../../utils/validar');
 const tipoPorton = z.enum(['CORREDIZO', 'BATIENTE']);
 
 // Solicitud de cotización de un portón: la misma desde el panel y desde el asistente de WhatsApp.
-// El precio por m² depende de la madera elegida. El transporte no se pide como accesorio: se aplica según `fuera_ciudad`.
+// El precio por m² depende de la madera elegida. `fuera_ciudad` (45 minutos o más) solo se anota: el traslado se acuerda en la reunión.
 const solicitud = z.object({
   tipo_porton: tipoPorton,
   madera_id: z.number({ error: 'Elige la madera' }).int().positive(),

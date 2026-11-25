@@ -1,6 +1,9 @@
 const db = require('../../config/db');
 const AppError = require('../../utils/AppError');
-const { formatearFecha, nombreMadera } = require('../../utils/formato');
+const { formatearDecimal, formatearFecha, nombreMadera } = require('../../utils/formato');
+const { aEntero, aTexto } = require('../cotizador/cotizador.calculo');
+const pagosRepository = require('../pagos/pagos.repository');
+const pagosService = require('../pagos/pagos.service');
 const pedidosRepository = require('../pedidos/pedidos.repository');
 const pedidosService = require('../pedidos/pedidos.service');
 const whatsappEnvio = require('../whatsapp/whatsapp.envio');
@@ -50,19 +53,23 @@ async function tablero() {
   };
 }
 
-/** Pedido con su historial inmutable completo (trazabilidad). */
+/** Pedido con su cuenta (pagos, saldo y anticipo) y su historial inmutable completo (trazabilidad). */
 async function detalle(codigo) {
-  const [pedido, historial, nombresFases] = await Promise.all([
+  const [pedido, cuenta, historial, nombresFases] = await Promise.all([
     pedidosService.obtener(codigo),
+    pagosService.cuentaPorCodigo(codigo),
     logisticaRepository.historial(codigo),
     nombresDeFases(),
   ]);
-  return { ...pedido, ...pasos(pedido.estado, pedido.fase?.orden, nombresFases), historial };
+  return { ...pedido, ...pasos(pedido.estado, pedido.fase?.orden, nombresFases), cuenta, historial };
 }
 
-function avisoAlCliente(destino, pedido) {
+function avisoAlCliente(destino, pedido, saldo) {
   if (destino.estado === 'EN_RUTA') {
-    return `Su pedido *${pedido.codigo}* ya salió de nuestro taller y está en camino para la instalación.`;
+    const recordatorio = aEntero(saldo, 2) > 0n
+      ? ` Le recordamos que el saldo de ${formatearDecimal(saldo)} Bs se paga al momento de la instalación.`
+      : '';
+    return `Su pedido *${pedido.codigo}* ya salió de nuestro taller y está en camino para la instalación.${recordatorio}`;
   }
   if (destino.estado === 'ENTREGADO') {
     return `¡Listo! Su portón (pedido *${pedido.codigo}*) quedó instalado. Gracias por confiar en MACHOBOL.`;
@@ -93,12 +100,19 @@ async function mover(codigo, { accion, desde, motivo = null }, usuario) {
         ? `El pedido ${codigo} ya está entregado e instalado.`
         : `El pedido ${codigo} está en la primera fase: no se puede retroceder.`);
     }
+    // El saldo se paga al instalar: no se cierra la instalación mientras quede saldo por registrar.
+    const pagado = await pagosRepository.totalVigente(client, pedido.id);
+    const saldo = aTexto(aEntero(pedido.total_final, 2) - aEntero(pagado, 2), 2);
+    if (destino.estado === 'ENTREGADO' && aEntero(saldo, 2) > 0n) {
+      throw new AppError(409, `Falta registrar el saldo de ${formatearDecimal(saldo)} Bs antes de cerrar la instalación `
+        + '(el Admin lo registra en Pagos, en la ficha del pedido).');
+    }
     await pedidosRepository.anotarCambio(client, { usuarioId: usuario.id, motivo });
     await pedidosRepository.moverA(client, pedido.id, destino);
-    return { pedido, destino };
+    return { pedido, destino, saldo };
   });
 
-  const aviso = accion === 'avanzar' && avisoAlCliente(resultado.destino, resultado.pedido);
+  const aviso = accion === 'avanzar' && avisoAlCliente(resultado.destino, resultado.pedido, resultado.saldo);
   if (aviso) {
     whatsappEnvio.notificar(resultado.pedido.wa_id, resultado.pedido.cliente_id, aviso);
   }

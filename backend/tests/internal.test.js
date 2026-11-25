@@ -56,7 +56,6 @@ describeConBD('API interna para Rasa', () => {
       ['MOTOR_CORREDIZO', '1740.00'],
       ['MOTOR_BATIENTE', '2088.00'],
       ['PUERTA_INGRESO', '696.00'],
-      ['TRANSPORTE_VIATICOS', '150.00'],
     ]);
   });
 
@@ -108,26 +107,44 @@ describeConBD('API interna para Rasa', () => {
     ['una medida fuera del rango del cotizador', { ancho_m: 25 }],
     ['un wa_id que no es un número de WhatsApp', { wa_id: '+591 71234567' }],
     ['un accesorio que no existe', { accesorios: ['ALARMA'] }],
-    ['el recargo de transporte pedido como accesorio', { accesorios: ['TRANSPORTE_VIATICOS'] }],
+    ['el antiguo recargo de transporte (retirado) pedido como accesorio', { accesorios: ['TRANSPORTE_VIATICOS'] }],
     ['un motor incompatible con el tipo de portón', { accesorios: ['MOTOR_BATIENTE'] }],
   ])('POST /cotizaciones rechaza con 400 %s', async (_caso, cambio) => {
     const res = await interna('post', '/cotizaciones').send({ ...SOLICITUD, ...cambio });
     expect(res.status).toBe(400);
   });
 
-  it('POST /pedidos/:codigo/pago-qr genera el cobro sin imagen (la envía el backend como adjunto)', async () => {
-    await fijarStockCedro(50);
-    const { body: pedido } = await interna('post', '/cotizaciones').send(SOLICITUD);
-
-    const res = await interna('post', `/pedidos/${pedido.codigo}/pago-qr`).send({ wa_id: SOLICITUD.wa_id });
+  it('GET /negocio devuelve los datos que responde el bot, sin el número del encargado', async () => {
+    const res = await interna('get', '/negocio');
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ pedido: pedido.codigo, monto: '23476.00', estado: 'PENDIENTE' });
-    expect(res.body.qr_imagen).toBeUndefined();
+    expect(res.body).toMatchObject({
+      ciudad: 'Santa Cruz de la Sierra',
+      maps_url: 'https://maps.app.goo.gl/ygjFbw5tswdSbFnv9',
+      formas_pago: 'QR, efectivo, transferencia y cheque',
+      anticipo_pct: '50.00',
+    });
+    expect(res.body.whatsapp_avisos).toBeUndefined();
   });
 
-  it('POST /pedidos/:codigo/pago-qr responde 404 si el pedido es de otro cliente', async () => {
+  it('POST /pedidos/:codigo/reunion: el cliente acepta la cotización y pide una reunión; solo con sus propios pedidos', async () => {
     const { body: pedido } = await interna('post', '/cotizaciones').send(SOLICITUD);
-    const res = await interna('post', `/pedidos/${pedido.codigo}/pago-qr`).send({ wa_id: '59179999999' });
-    expect(res.status).toBe(404);
+    expect((await interna('post', `/pedidos/${pedido.codigo}/reunion`).send({ wa_id: '59179999999' })).status).toBe(404);
+
+    const res = await interna('post', `/pedidos/${pedido.codigo}/reunion`).send({ wa_id: SOLICITUD.wa_id, preferencia: 'El jueves por la tarde' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ codigo: pedido.codigo, estado: 'REUNION_SOLICITADA', nueva: true });
+    const otraVez = await interna('post', `/pedidos/${pedido.codigo}/reunion`).send({ wa_id: SOLICITUD.wa_id, preferencia: 'Mejor el viernes' });
+    expect(otraVez.body.nueva).toBe(false);
+  });
+
+  it('GET /pedidos/estado: estado, fase y saldo de los pedidos del cliente que conversa', async () => {
+    const { body: pedido } = await interna('post', '/cotizaciones').send(SOLICITUD);
+    const res = await interna('get', `/pedidos/estado?wa_id=${SOLICITUD.wa_id}&codigo=${pedido.codigo}`);
+    expect(res.status).toBe(200);
+    expect(res.body.pedidos).toEqual([expect.objectContaining({
+      codigo: pedido.codigo, estado: 'COTIZADO', fase: null, precio: pedido.total_final, pagado: '0.00', saldo: pedido.total_final,
+    })]);
+    const ajeno = await interna('get', `/pedidos/estado?wa_id=59179999999&codigo=${pedido.codigo}`);
+    expect(ajeno.body.pedidos).toEqual([]);
   });
 });

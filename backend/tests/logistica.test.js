@@ -2,6 +2,7 @@ const request = require('supertest');
 const app = require('../src/app');
 const pedidosService = require('../src/modules/pedidos/pedidos.service');
 const pagosService = require('../src/modules/pagos/pagos.service');
+const ventasService = require('../src/modules/ventas/ventas.service');
 const { esperarPendientes } = require('../src/utils/segundoPlano');
 const { db, describeConBD, reiniciarBD, crearUsuarioConToken, tokenAdmin, crearCliente, fijarStockCedro, idCedro } = require('./helpers/bd');
 
@@ -13,6 +14,7 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
   let ventas;
   let cliente;
   let cedro;
+  let usuarioAdmin;
 
   beforeAll(async () => {
     await reiniciarBD();
@@ -21,6 +23,7 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     ventas = (await crearUsuarioConToken('VENTAS')).token;
     cliente = await crearCliente();
     cedro = await idCedro();
+    usuarioAdmin = (await db.query("SELECT id, nombre, rol FROM usuarios WHERE rol = 'ADMIN' LIMIT 1")).rows[0];
   });
 
   beforeEach(() => fijarStockCedro(100));
@@ -35,10 +38,13 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     )).codigo;
   }
 
+  /** Portón de 4 × 2,20 en Cedro: 21.736 Bs; el anticipo del 50 % es 10.868 Bs. */
+  const pagar = (codigo, monto) => pagosService.registrar({ pedido: codigo, monto, metodo: 'EFECTIVO' }, usuarioAdmin);
+
   async function pedidoPagado() {
     const codigo = await nuevoPedido();
-    const { pago } = await pagosService.crearCobroQr(codigo);
-    await pagosService.simularPago(pago.id);
+    await pagar(codigo, 10868);
+    await ventasService.iniciarProduccion(codigo, usuarioAdmin);
     await esperarPendientes();
     return codigo;
   }
@@ -47,7 +53,7 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     return (await conToken(admin, 'get', `/pedidos/${codigo}`)).body.historial;
   }
 
-  it('el tablero muestra solo los pedidos pagados, con su etapa y el paso siguiente', async () => {
+  it('el tablero muestra solo los pedidos con anticipo y en producción, con su etapa y el paso siguiente', async () => {
     const cotizado = await nuevoPedido();
     const pagado = await pedidoPagado();
 
@@ -78,8 +84,7 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     const pasos = res.body.historial;
     expect(pasos.map((h) => [h.estado_nuevo, h.fase_nueva, h.usuario, h.motivo])).toEqual([
       ['COTIZADO', null, null, 'Cotización pedida por WhatsApp'],
-      ['PENDIENTE_PAGO', null, null, expect.stringMatching(/^QR de pago MOCK-.+ generado$/)],
-      ['EN_PRODUCCION', 1, null, expect.stringMatching(/^Pago QR MOCK-.+ confirmado$/)],
+      ['EN_PRODUCCION', 1, 'Admin Pruebas', 'Anticipo cubierto: producción iniciada'],
       ['EN_PRODUCCION', 2, 'Rosa Taller', 'Troncos seleccionados'],
     ]);
     const ultimo = pasos.at(-1);
@@ -88,16 +93,24 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     expect(new Date(ultimo.creado_en).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
   });
 
-  it('recorre las 11 fases: tras la 10 sale en ruta, luego queda entregado, y avisa al cliente por WhatsApp', async () => {
+  it('recorre las 11 fases: tras la 10 sale en ruta, con el saldo pagado queda entregado, y avisa al cliente por WhatsApp', async () => {
     const codigo = await pedidoPagado();
     let desde = { estado: 'EN_PRODUCCION', fase: 1 };
     let detalle;
     while (desde) {
-      const res = await avanzar(codigo, desde);
+      let res = await avanzar(codigo, desde);
+      if (desde.estado === 'EN_RUTA') {
+        // El saldo se paga al instalar: sin registrarlo, la instalación no se cierra.
+        expect(res.status).toBe(409);
+        expect(res.body.error).toMatch(/^Falta registrar el saldo de 10.868,00 Bs antes de cerrar la instalación/);
+        await pagar(codigo, 10868);
+        res = await avanzar(codigo, desde);
+      }
       expect(res.status).toBe(200);
       detalle = res.body;
       desde = detalle.siguiente && { estado: detalle.estado, fase: detalle.fase.orden };
     }
+    expect(detalle.cuenta).toMatchObject({ precio_acordado: '21736.00', pagado: '21736.00', saldo: '0.00' });
     expect(detalle).toMatchObject({ estado: 'ENTREGADO', estado_nombre: 'Entregado / instalado', fase: { orden: 11 }, siguiente: null });
     expect(detalle.historial.map((h) => h.estado_nuevo).slice(-3)).toEqual(['EN_PRODUCCION', 'EN_RUTA', 'ENTREGADO']);
 
@@ -108,7 +121,8 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     await esperarPendientes();
     const { rows } = await db.query("SELECT contenido->'text'->>'body' AS texto FROM mensajes_whatsapp WHERE direccion = 'OUT' ORDER BY id");
     const textos = rows.map((r) => r.texto);
-    expect(textos).toContain(`Su pedido *${codigo}* ya salió de nuestro taller y está en camino para la instalación.`);
+    expect(textos).toContain(`Su pedido *${codigo}* ya salió de nuestro taller y está en camino para la instalación. `
+      + 'Le recordamos que el saldo de 10.868,00 Bs se paga al momento de la instalación.');
     expect(textos).toContain(`¡Listo! Su portón (pedido *${codigo}*) quedó instalado. Gracias por confiar en MACHOBOL.`);
   });
 
@@ -148,7 +162,7 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     expect(res.body.historial.at(-1)).toMatchObject({ fase_anterior: 2, fase_nueva: 1, usuario: 'Admin Pruebas', motivo: 'La madera necesita más secado' });
   });
 
-  it('Ventas solo consulta, y un pedido sin pagar no entra a la logística', async () => {
+  it('Ventas solo consulta, y un pedido sin anticipo no entra a la logística', async () => {
     const pagado = await pedidoPagado();
     expect((await avanzar(pagado, { estado: 'EN_PRODUCCION', fase: 1 }, ventas)).status).toBe(403);
     expect((await conToken(ventas, 'get', `/pedidos/${pagado}`)).status).toBe(200);
@@ -181,20 +195,18 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     await expect(db.query('DELETE FROM historial_pedido WHERE id = $1', [id])).rejects.toThrow('El historial de pedidos es inmutable: no se puede borrar un registro.');
   });
 
-  it('un pedido cobrado sin madera (revisión de stock) entra a producción cuando el Admin repone la madera', async () => {
+  it('un pedido con anticipo pero sin madera (revisión de stock) entra a producción cuando el Admin repone la madera', async () => {
     await fijarStockCedro(5); // el portón necesita 9,68 m²
     const codigo = await nuevoPedido();
-    await fijarStockCedro(50);
-    const { pago } = await pagosService.crearCobroQr(codigo);
-    await fijarStockCedro(5);
-    expect((await pagosService.simularPago(pago.id)).resultado).toBe('REVISION_STOCK');
+    await pagar(codigo, 10868);
+    expect((await ventasService.iniciarProduccion(codigo, usuarioAdmin)).resultado).toBe('REVISION_STOCK');
 
     const tablero = (await conToken(admin, 'get', '/tablero')).body.pedidos;
     expect(tablero.find((p) => p.codigo === codigo)).toMatchObject({ estado: 'REVISION_STOCK', siguiente: null });
 
     const faltaMadera = await conToken(admin, 'post', `/pedidos/${codigo}/reintentar-produccion`);
     expect(faltaMadera.status).toBe(409);
-    expect(faltaMadera.body.error).toBe('Aún falta madera: se necesitan 9.68 m² y hay 5 m².');
+    expect(faltaMadera.body.error).toBe('Aún falta madera: se necesitan 9,68 m² de Cedro 1″ y hay 5,00 m².');
     expect((await conToken(taller, 'post', `/pedidos/${codigo}/reintentar-produccion`)).status).toBe(403);
 
     await fijarStockCedro(50);
@@ -202,10 +214,10 @@ describeConBD('Calendario logístico y trazabilidad (R-13)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ estado: 'EN_PRODUCCION', fase: { orden: 1 } });
     expect(res.body.historial.at(-1)).toMatchObject({ estado_anterior: 'REVISION_STOCK', estado_nuevo: 'EN_PRODUCCION', usuario: 'Admin Pruebas', motivo: 'Madera repuesta: producción iniciada' });
-    const { rows: [estado] } = await db.query(
-      `SELECT q.estado, m.stock_actual_m2 FROM pagos_qr q JOIN pedidos p ON p.id = q.pedido_id JOIN inventario_madera m ON m.id = p.madera_id WHERE p.codigo = $1`,
+    const { rows: [madera] } = await db.query(
+      'SELECT m.stock_actual_m2 FROM pedidos p JOIN inventario_madera m ON m.id = p.madera_id WHERE p.codigo = $1',
       [codigo],
     );
-    expect(estado).toEqual({ estado: 'CONFIRMADO', stock_actual_m2: '40.3200' });
+    expect(madera.stock_actual_m2).toBe('40.3200');
   });
 });

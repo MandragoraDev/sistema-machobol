@@ -12,13 +12,39 @@ const FILTROS = [
   { valor: 'REVISION_STOCK', texto: 'Esperan madera' },
 ];
 
+/** Reuniones agendadas con clientes (antes de la producción), de la más próxima a la más lejana. */
+function Reuniones({ reuniones, seleccionado, onSeleccionar }) {
+  const proximas = reuniones
+    .filter((r) => r.reunion.fecha)
+    .sort((a, b) => new Date(a.reunion.fecha) - new Date(b.reunion.fecha));
+  if (proximas.length === 0) return null;
+  return (
+    <div className="mb-6">
+      <h2 className="mb-2 font-semibold text-primary">Reuniones con clientes</h2>
+      <ul className="divide-y divide-stone-200 text-sm">
+        {proximas.map((r) => (
+          <li key={r.codigo} className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2 ${seleccionado === r.codigo ? 'bg-surface' : ''}`}>
+            <span className="w-36 font-medium tabular-nums">{formatearFechaHora(r.reunion.fecha)}</span>
+            <button type="button" onClick={() => onSeleccionar(r.codigo)} className="font-medium text-primary underline-offset-2 hover:underline">
+              {r.codigo}
+            </button>
+            <span>{r.cliente.nombre || `+${r.cliente.wa_id}`}</span>
+            <span className="text-stone-600">{describirPorton(r.porton)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Calendario logístico en tabla: primero las instalaciones programadas, por fecha; luego las que no tienen fecha. */
-export default function CalendarioLogistico({ pedidos, seleccionado, onSeleccionar }) {
+export default function CalendarioLogistico({ pedidos, reuniones = [], seleccionado, onSeleccionar }) {
   const [filtro, setFiltro] = useState('');
   const filas = filtro ? pedidos.filter((p) => p.estado === filtro) : pedidos;
 
   return (
     <div className="rounded-lg border border-primary/15 bg-white p-5 shadow-sm">
+      <Reuniones reuniones={reuniones} seleccionado={seleccionado} onSeleccionar={onSeleccionar} />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold text-primary">Instalaciones y etapas</h2>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} className={claseControl} aria-label="Filtrar por estado">
@@ -38,7 +64,7 @@ export default function CalendarioLogistico({ pedidos, seleccionado, onSeleccion
                 <th className="py-2 pr-4 font-medium">Portón</th>
                 <th className="py-2 pr-4 font-medium">Etapa</th>
                 <th className="py-2 pr-4 font-medium">En la etapa</th>
-                <th className="py-2 font-medium">Pagado</th>
+                <th className="py-2 font-medium">Primer pago</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-200">

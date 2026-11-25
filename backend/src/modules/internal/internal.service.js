@@ -3,8 +3,11 @@ const { nombreMadera } = require('../../utils/formato');
 const catalogoRepository = require('../catalogo/catalogo.repository');
 const clientesRepository = require('../clientes/clientes.repository');
 const cotizadorService = require('../cotizador/cotizador.service');
+const configuracionService = require('../configuracion/configuracion.service');
+const pedidosRepository = require('../pedidos/pedidos.repository');
 const pedidosService = require('../pedidos/pedidos.service');
-const pagosService = require('../pagos/pagos.service');
+const { aEntero, aTexto } = require('../cotizador/cotizador.calculo');
+const ventasService = require('../ventas/ventas.service');
 
 /**
  * Catálogo vigente para el bot: productos activos por categoría (los portones, con su precio por m² en cada madera)
@@ -45,10 +48,33 @@ function maderas(consulta) {
   return cotizadorService.maderasDisponibles(consulta);
 }
 
-/** Genera (o reutiliza) el QR de cobro de un pedido del cliente. La imagen la envía el backend como adjunto. */
-async function crearPagoQr(codigo, { wa_id }) {
-  await pedidosService.obtenerDelCliente(codigo, wa_id);
-  return pagosService.presentarCobro(await pagosService.crearCobroQr(codigo), { conImagen: false });
+/** Datos del negocio que responde el bot (ubicación, horarios, formas de pago…). El número del encargado no sale. */
+async function negocio() {
+  const { whatsapp_avisos, actualizado_en, ...datos } = await configuracionService.obtener();
+  return datos;
 }
 
-module.exports = { catalogo, cotizar, maderas, crearPagoQr };
+/** "¿Cómo va mi pedido?": estado, fase y saldo de los pedidos recientes del cliente (o de uno, por su código). */
+async function estadoPedidos({ wa_id, codigo }) {
+  const pedidos = await pedidosRepository.resumenDelCliente(wa_id, codigo ?? null);
+  return {
+    pedidos: pedidos.map((p) => ({
+      codigo: p.codigo,
+      estado: p.estado,
+      estado_nombre: p.estado_nombre,
+      fase: p.fase_orden ? { orden: p.fase_orden, nombre: p.fase_nombre } : null,
+      fecha_reunion: p.fecha_reunion,
+      fecha_instalacion: p.fecha_instalacion,
+      precio: p.total_final,
+      pagado: p.pagado,
+      saldo: aTexto(aEntero(p.total_final, 2) - aEntero(p.pagado, 2), 2),
+    })),
+  };
+}
+
+/** El cliente acepta la cotización y pide una reunión con un asesor. */
+function solicitarReunion(codigo, datos) {
+  return ventasService.solicitarReunion(codigo, datos);
+}
+
+module.exports = { catalogo, cotizar, maderas, negocio, estadoPedidos, solicitarReunion };

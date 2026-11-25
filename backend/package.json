@@ -15,7 +15,6 @@
     "db:migration:create": "node-pg-migrate create -m src/db/migrations --migration-file-language sql",
     "db:seed": "node src/db/seeds/run.js",
     "whatsapp:simular": "node scripts/simular-whatsapp.js",
-    "pagos:simular": "node scripts/simular-pago.js",
     "demo:pedidos": "node scripts/demo-pedidos.js",
     "pruebas:rendimiento": "node scripts/pruebas-rendimiento.js",
     "tunel": "cloudflared tunnel --url http://localhost:4000"

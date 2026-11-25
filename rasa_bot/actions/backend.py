@@ -66,6 +66,26 @@ async def cotizar(datos: Dict[str, Any]) -> Dict[str, Any]:
     return await _solicitar("POST", "/internal/cotizaciones", datos)
 
 
-async def crear_pago_qr(codigo: str, wa_id: str) -> Dict[str, Any]:
-    """Genera (o reutiliza) el QR de pago del pedido. La imagen la envía el backend como adjunto."""
-    return await _solicitar("POST", f"/internal/pedidos/{codigo}/pago-qr", {"wa_id": wa_id})
+_negocio: Optional[Dict[str, Any]] = None
+_negocio_leido_en = 0.0
+
+
+async def obtener_negocio() -> Dict[str, Any]:
+    """Datos del negocio que responde el bot (ubicación, horario, formas de pago, anticipo…). Un minuto de caché."""
+    global _negocio, _negocio_leido_en
+    if _negocio is None or time.monotonic() - _negocio_leido_en > _VIGENCIA_CATALOGO_S:
+        _negocio = await _solicitar("GET", "/internal/negocio")
+        _negocio_leido_en = time.monotonic()
+    return _negocio
+
+
+async def solicitar_reunion(codigo: str, wa_id: str, preferencia: Optional[str]) -> Dict[str, Any]:
+    """El cliente acepta la cotización y pide una reunión con un asesor (el backend avisa al encargado)."""
+    cuerpo = {"wa_id": wa_id, **({"preferencia": preferencia} if preferencia else {})}
+    return await _solicitar("POST", f"/internal/pedidos/{codigo}/reunion", cuerpo)
+
+
+async def estado_pedidos(wa_id: str, codigo: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Pedidos recientes del cliente (o uno, por su código) con su estado, fase y saldo."""
+    consulta = {"wa_id": wa_id, **({"codigo": codigo} if codigo else {})}
+    return (await _solicitar("GET", f"/internal/pedidos/estado?{urlencode(consulta)}"))["pedidos"]

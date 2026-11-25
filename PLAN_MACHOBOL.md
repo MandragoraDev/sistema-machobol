@@ -1,6 +1,6 @@
 # PLAN_MACHOBOL — Sistema Web Integral y Asistente Virtual
 
-> Versión 1.5 · 2026-11-11 · Estado: **aprobado** · Sprints 1 a 4 completados · Moneda única: **bolivianos (Bs)**
+> Versión 1.6 · 2026-11-25 · Estado: **aprobado** · Sprints 1 a 5 completados · Moneda única: **bolivianos (Bs)**
 > Forma de trabajo: un sprint a la vez, con punto de confirmación al cierre de cada uno.
 
 ---
@@ -9,9 +9,10 @@
 
 Sistema para MACHOBOL (portones y parques infantiles de madera) que automatiza:
 
-- **Ventas por WhatsApp** con un asistente virtual (Rasa) que entiende al cliente y recoge los datos de la cotización.
-- **Cotización paramétrica** de portones por m², con PDF y cobro por QR. Todo el sistema opera en bolivianos (Bs).
-- **Inventario de madera** en m², con descuento transaccional (ACID) al confirmarse el pago.
+- **Ventas por WhatsApp** con un asistente virtual (Rasa) que responde consultas, cotiza y agenda reuniones con un asesor.
+- **Cotización paramétrica** de portones por m², con PDF (precio referencial). El precio final y los pagos se acuerdan
+  en persona; la fabricación empieza con un anticipo del 50 %. Todo el sistema opera en bolivianos (Bs).
+- **Inventario de madera** en m², con descuento transaccional (ACID) al iniciar la producción.
 - **Seguimiento logístico** de cada pedido en 11 fases de producción (tablero Kanban).
 
 | Componente | Tecnología | Carpeta | Puerto (dev) |
@@ -38,10 +39,10 @@ Sistema para MACHOBOL (portones y parques infantiles de madera) que automatiza:
                                                │
                                                ▼
                                    action server (:5055) ──► backend /api/internal/*
-                                                             (cotizar, PDF, generar QR)
+                                                             (cotizar, PDF, reunión, estado, datos del negocio)
 
- Panel web (React) ──JWT──► backend /api/* ──► PostgreSQL
- Pasarela QR (mock) ──callback firmado──► backend /api/webhooks/pagos ──► transacción ACID
+ Panel web (React) ──JWT──► backend /api/* ──► PostgreSQL (Supabase)
+ Admin: registra pagos e "Iniciar producción" ──► transacción ACID (descuento de madera)
 ```
 
 **Principio rector:** toda la lógica de negocio (precios, stock, fases) vive **solo en el backend**.
@@ -73,7 +74,10 @@ sistema-machobol/
 │   │   │   ├── inventario/
 │   │   │   ├── cotizador/
 │   │   │   ├── pedidos/
-│   │   │   ├── pagos/         # adaptador de pasarela QR + webhook
+│   │   │   ├── pagos/         # pagos registrados a mano (anticipo, saldo)
+│   │   │   ├── ventas/        # reunión, precio acordado, inicio de producción
+│   │   │   ├── configuracion/ # datos del negocio que responde el bot
+│   │   │   ├── avisos/        # avisos al encargado por WhatsApp
 │   │   │   ├── logistica/     # fases y Kanban
 │   │   │   └── whatsapp/
 │   │   ├── utils/
@@ -117,10 +121,13 @@ Todos los montos están en **bolivianos (Bs)**. El sistema no maneja otras moned
 ```
 área_m2        = alto_m × ancho_m
 subtotal_base  = área_m2 × precio_m2 de la madera elegida   (Cedro 1″: Corredizo 2,470 Bs/m² · Batiente 2,500 Bs/m²)
-adicionales    = Σ accesorios + Σ recargos    (Motor corredizo +1,740 · Motor batiente +2,088 · Puerta ingreso +696
-                                               · Transporte/viáticos +150 solo si la entrega es fuera de la ciudad, a más de 45 min)
-total_final    = total_exacto = subtotal_base + adicionales   (cobro exacto, sin redondeo)
+adicionales    = Σ accesorios                 (Motor corredizo +1,740 · Motor batiente +2,088 · Puerta ingreso +696)
+total_exacto   = subtotal_base + adicionales  (precio referencial de la cotización, exacto, sin redondeo)
+total_final    = precio final acordado        (nace igual a total_exacto; el Admin lo cambia con motivo, Sprint 6)
 ```
+
+- **Venta con reunión (2026-11-25):** la cotización es un precio referencial. El precio final, el traslado fuera de la
+  ciudad (a 45 minutos o más) y los pagos se acuerdan con el asesor. Se retiró el recargo fijo de 150 Bs.
 
 - **Cobro exacto (2026-11-06):** el total ya no se redondea a múltiplos de 100 Bs. Con pago 100 % digital por QR no hay
   cambio físico que dar, y el sobrecargo por redondeo generaba fricción con el cliente. Se cobra el monto exacto, con centavos.
@@ -133,17 +140,17 @@ total_final    = total_exacto = subtotal_base + adicionales   (cobro exacto, sin
   Si después cambia el catálogo, las cotizaciones emitidas no se alteran.
 - **Convención de centavos:** medio centavo no se puede cobrar, así que el subtotal se redondea al centavo más cercano;
   todos los montos se guardan con 2 decimales.
-- Accesorios y recargos viven en la misma tabla (`accesorios.tipo_adicional` = `ACCESORIO` | `RECARGO`) y ambos se suman al total.
+- Accesorios y recargos viven en la misma tabla (`accesorios.tipo_adicional` = `ACCESORIO` | `RECARGO`). Hoy no hay
+  recargos activos: el de transporte quedó inactivo (las cotizaciones anteriores lo conservan).
 
 **Casos de prueba de referencia (Bs, madera Cedro 1″):**
 
-| Tipo | Alto × Ancho | Área | Base | Adicionales | Total a pagar |
+| Tipo | Alto × Ancho | Área | Base | Adicionales | Total referencial |
 |---|---|---|---|---|---|
 | Corredizo | 2.20 × 4.00 | 8.80 | 21,736.00 | Motor corredizo 1,740 | **23,476.00** |
 | Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Motor batiente 2,088 + Puerta 696 | **17,784.00** |
 | Corredizo | 1.50 × 2.50 | 3.75 | 9,262.50 | — | **9,262.50** |
 | Corredizo | 2.00 × 2.50 | 5.00 | 12,350.00 | — | **12,350.00** |
-| Batiente | 2.00 × 3.00 | 6.00 | 15,000.00 | Transporte/viáticos 150 | **15,150.00** |
 
 ### 2.2 Inventario de madera
 
@@ -160,35 +167,36 @@ total_final    = total_exacto = subtotal_base + adicionales   (cobro exacto, sin
 - **Defensa en profundidad:** `CHECK (stock_actual_m2 >= 0)` en la tabla, además de la validación en el servicio.
 - **Alerta:** si después de un movimiento `stock_actual_m2 <= stock_minimo_m2`, se marca en el Dashboard.
 
-### 2.3 Transacción ACID de pago y descuento de stock
+### 2.3 Transacción ACID al iniciar la producción
 
-Para evitar cobrar sin stock, este se **pre-valida** antes de generar el QR. El descuento real ocurre solo dentro de esta transacción:
+Desde el Sprint 6 no hay cobro automático: el Admin registra los pagos que recibe y, con el anticipo cubierto (50 % del
+precio acordado), pulsa **Iniciar producción**. El descuento de madera ocurre solo dentro de esta transacción:
 
 ```sql
 BEGIN;
-  SELECT ... FROM pagos_qr WHERE transaccion_id = $1 FOR UPDATE;      -- idempotencia
-  --  si ya está CONFIRMADO → COMMIT sin cambios y responder 200
+  SELECT ... FROM pedidos WHERE codigo = $1 FOR UPDATE;               -- un inicio a la vez por pedido
+  --  si los pagos vigentes < anticipo → ROLLBACK y 409
   SELECT stock_actual_m2 FROM inventario_madera WHERE id = $2 FOR UPDATE;
-  --  si stock < requerido → ROLLBACK
+  --  si stock < requerido → el pedido pasa a REVISION_STOCK (y se avisa al encargado)
   UPDATE inventario_madera SET stock_actual_m2 = stock_actual_m2 - $req WHERE id = $2;
   INSERT INTO movimientos_inventario (tipo, cantidad_m2, pedido_id, ...) VALUES ('SALIDA', ...);
-  UPDATE pagos_qr SET estado = 'CONFIRMADO', confirmado_en = now() WHERE ...;
-  UPDATE pedidos  SET estado = 'EN_PRODUCCION', fase_actual = 1 WHERE ...;
-  -- el trigger trg_pedidos_historial registra el cambio en historial_pedido (Sprint 5)
+  UPDATE pedidos SET estado = 'EN_PRODUCCION', fase_actual = 1 WHERE ...;
+  -- el trigger trg_pedidos_historial registra el cambio en historial_pedido
 COMMIT;
 ```
 
-- Si hubo `ROLLBACK` por falta de stock, el banco ya cobró. En una transacción aparte, el pago queda en
-  `REVISION` y el pedido en `REVISION_STOCK`, y se alerta al Admin para reponer la madera o devolver el dinero.
-- `SELECT ... FOR UPDATE` serializa los pagos que compiten por la misma madera.
-- El callback de la pasarela puede llegar repetido. Gracias a la idempotencia por `transaccion_id`, solo se descuenta una vez.
+- `SELECT ... FOR UPDATE` serializa los pedidos que compiten por la misma madera: uno la descuenta y el otro queda en
+  `REVISION_STOCK`. Con la madera repuesta, "Reintentar producción" vuelve a ejecutar la transacción.
+- El índice único `ux_movimientos_salida_por_pedido` garantiza que un pedido descuente madera una sola vez.
+- Los pagos no se borran ni se editan (trigger): se anulan con un motivo. El saldo (50 % restante) se paga al instalar:
+  no se puede cerrar la instalación con saldo pendiente.
 
 ### 2.4 Estados del pedido vs. fases de producción
 
 Son dos dimensiones distintas:
 
-- **Estado** (`estados_pedido`): `COTIZADO → PENDIENTE_PAGO → EN_PRODUCCION → EN_RUTA → ENTREGADO`,
-  más `CANCELADO` y `REVISION_STOCK`.
+- **Estado** (`estados_pedido`): `COTIZADO → REUNION_SOLICITADA → REUNION_AGENDADA → EN_PRODUCCION → EN_RUTA → ENTREGADO`,
+  más `CANCELADO` y `REVISION_STOCK`. `PENDIENTE_PAGO` (QR de la pasarela) dejó de usarse en el Sprint 6.
 - **Fase de producción** (`fases_produccion`): avanza **estrictamente en orden** (1 → 2 → … → 11), de a un paso.
   Las fases 1 a 10 transcurren `EN_PRODUCCION` (en el taller). Al cerrar la fase 10 (control de calidad y despacho) el
   pedido sale `EN_RUTA` y entra a la fase 11 (instalación); al cerrarla queda `ENTREGADO` (entregado / instalado).
@@ -220,7 +228,9 @@ Fases definitivas (confirmadas el 2026-11-02):
 | Catálogo y precios | CRUD | Lectura | Lectura |
 | Clientes | CRUD | CRUD | — |
 | Cotizaciones / pedidos | CRUD | Crear / leer / cancelar | Lectura |
-| Pagos QR | Lectura + revisión | Generar QR / lectura | — |
+| Reuniones con clientes | Agendar | Agendar | — |
+| Precio acordado, pagos, iniciar producción | Sí (pagos: registrar y anular con motivo) | Lectura | Lectura |
+| Configuración del negocio | Editar | Lectura | Lectura |
 | Inventario: ingreso de trocas | Sí | — | Sí |
 | Inventario: ajustes manuales | Sí (motivo obligatorio) | — | — |
 | Kanban: mover fase | Avanzar y retroceder (con motivo) | Lectura | Avanzar |
@@ -246,10 +256,11 @@ Cada regla de integridad tiene un nombre (`ck_*`, `uq_*`, `ux_*`), así la API p
 | `movimientos_inventario` | Kardex | `madera_id` FK, `tipo` ENUM(`INGRESO`,`SALIDA`,`AJUSTE`), `cantidad_m2`, `piezas`, `ancho_pulg`, `largo_pies`, `stock_resultante_m2`, `pedido_id` FK NULL, `usuario_id` FK NULL, `motivo` |
 | `estados_pedido` | Catálogo de estados | `codigo` UNIQUE, `nombre` |
 | `fases_produccion` | Fases 1–11 | `orden` UNIQUE CHECK 1–11, `nombre`, `descripcion` |
-| `pedidos` | Cotización → pedido | `codigo` UNIQUE (`MCH-AAAA-NNNN`), `cliente_id`, `producto_id`, `alto_m`, `ancho_m`, `area_m2`, `precio_m2_aplicado`, `subtotal_base`, `total_adicionales` (accesorios + recargos), `total_exacto`, `total_final`, `madera_id`, `madera_requerida_m2`, `estado_id`, `fase_actual_id` NULL, `canal` ENUM(`WHATSAPP`,`PANEL`), `creado_por` NULL |
+| `pedidos` | Cotización → pedido | `codigo` UNIQUE (`MCH-AAAA-NNNN`), `cliente_id`, `producto_id`, `alto_m`, `ancho_m`, `area_m2`, `precio_m2_aplicado`, `subtotal_base`, `total_adicionales`, `total_exacto` (referencial), `total_final` (acordado), `madera_id`, `madera_requerida_m2`, `estado_id`, `fase_actual_id` NULL, `canal` ENUM(`WHATSAPP`,`PANEL`), `creado_por` NULL, `fuera_ciudad`, `fecha_reunion`, `preferencia_reunion`, `fecha_instalacion` |
 | `pedido_accesorios` | Accesorios del pedido | PK(`pedido_id`,`accesorio_id`), `precio_aplicado` |
-| `historial_pedido` | Trazabilidad inmutable (Sprint 5; reemplazó a `historial_fases`) | `pedido_id`, `estado_anterior_id`, `estado_nuevo_id`, `fase_anterior_id`, `fase_nueva_id`, `usuario_id`, `motivo`, `creado_en` |
-| `pagos_qr` | Cobros QR (pago total, en Bs) | `pedido_id` FK, `transaccion_id` UNIQUE, `monto`, `estado` ENUM(`PENDIENTE`,`CONFIRMADO`,`EXPIRADO`,`FALLIDO`,`REVISION`), `qr_payload`, `expira_en`, `confirmado_en` |
+| `historial_pedido` | Trazabilidad inmutable (Sprint 5; reemplazó a `historial_fases`) | `pedido_id`, `estado_anterior_id`, `estado_nuevo_id`, `fase_anterior_id`, `fase_nueva_id`, `total_anterior`, `total_nuevo` (precio acordado, Sprint 6), `usuario_id`, `motivo`, `creado_en` |
+| `pagos` | Pagos registrados a mano (Sprint 6; reemplazó a `pagos_qr`) | `pedido_id` FK, `monto`, `metodo` ENUM(`QR`,`EFECTIVO`,`TRANSFERENCIA`,`CHEQUE`), `referencia`, `registrado_por`, `anulado_en`, `anulado_por`, `motivo_anulacion` (no se borran: se anulan) |
+| `configuracion_negocio` | Datos que responde el bot (una fila, Sprint 6) | `ciudad`, `direccion`, `maps_url`, `horarios`, `formas_pago`, `tiempo_fabricacion`, `cobertura`, `anticipo_pct`, `whatsapp_avisos` |
 | `mensajes_whatsapp` | Auditoría y deduplicación | `wa_message_id` UNIQUE, `cliente_id`, `direccion` ENUM(`IN`,`OUT`), `contenido` JSONB |
 
 **Tablas añadidas al esquema solicitado y su motivo:**
@@ -257,6 +268,8 @@ Cada regla de integridad tiene un nombre (`ck_*`, `uq_*`, `ux_*`), así la API p
 - `pedido_accesorios`: guardar los IDs de accesorios como arreglo dentro de `pedidos` impediría las FK y el snapshot de precio. Una tabla intermedia resuelve ambas cosas.
 - `historial_pedido`: registra quién movió cada pedido, cuándo y por qué; el tablero logístico y las auditorías lo necesitan.
 - `mensajes_whatsapp`: Meta reenvía webhooks; sin esta tabla un mensaje se procesaría dos veces.
+- `pagos` y `configuracion_negocio` (Sprint 6): la venta real se acuerda en persona, con varios pagos por pedido, y los
+  datos que responde el bot los mantiene el Admin sin tocar el código.
 
 ---
 
@@ -409,7 +422,7 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 
 ---
 
-### Sprint 5 — Calendario logístico, trazabilidad y pruebas 🟡 (implementado el 2026-11-11, pendiente de confirmación)
+### Sprint 5 — Calendario logístico, trazabilidad y pruebas ✅ (2026-11-25)
 
 **Objetivo:** visibilidad de la producción y la entrega (R-13), trazabilidad inmutable y entorno de pruebas técnicas.
 
@@ -436,10 +449,10 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
   de `anon`/`authenticated`: la API REST pública responde "permission denied". Las pruebas siguen en `machobol_test` local.
   Contenido de prueba cargado por la API (usuarios Ventas/Taller, Tajibo, trocas, 4 pedidos pagados en distintas etapas y
   una cotización por WhatsApp); se elimina con [docs/supabase/limpiar-datos-de-prueba.sql](docs/supabase/limpiar-datos-de-prueba.sql).
-- [ ] Bot: `consultar_estado_pedido` responde con la fase actual del pedido.
-- [ ] Plantillas de WhatsApp aprobadas por Meta para los avisos fuera de la ventana de 24 h (hoy son mensajes de texto).
-- [ ] Dashboard final: ventas del mes y pagos en revisión.
-- [ ] Endurecimiento: CORS restringido, revisión de variables de entorno y README de instalación en producción.
+- [x] Bot: `consultar_estado_pedido` responde con el estado, la fase y el saldo reales (hecho en el Sprint 6, parte A).
+- [x] Dashboard final: ventas del mes (hecho en el Sprint 6, parte A; los "pagos en revisión" dejaron de existir con la
+  pasarela).
+- → Plantillas de WhatsApp aprobadas por Meta y endurecimiento para producción: pasan al Sprint 6, parte B (despliegue).
 
 **Verificación realizada:**
 - 144 pruebas Jest (14 nuevas de logística: recorrido completo de las 11 fases, historial con hora exacta, usuario y motivo,
@@ -457,6 +470,145 @@ BD local del equipo de desarrollo (PostgreSQL 16.15) creada con `db:setup`, `db:
 - Prueba E2E: mensaje simulado → cotización → pago → fase 1 → … → fase 11 → `ENTREGADO`, con stock e historial consistentes.
 - Taller puede avanzar tarjetas; Ventas solo las ve.
 - Ningún intento de saltar una fase pasa la validación, ni en la API ni en la UI.
+
+---
+
+### Sprint 6 — Venta con reunión y anticipo, avisos de madera y despliegue 🟡 (parte A implementada el 2026-11-25; parte B pendiente)
+
+**Objetivo:** que el sistema venda como vende MACHOBOL y dejarlo funcionando en la nube. El bot cotiza un precio
+referencial y agenda una reunión con un asesor; el precio final y los pagos se acuerdan en persona; la fabricación
+empieza con un **anticipo del 50 %**. No hay cobro por el bot ni integración con un banco (trabajo futuro).
+
+**Decisiones del negocio (2026-11-25):**
+- Nunca se cobra por conversar, por preguntar ni por cotizar. Si la cotización le agrada, el cliente pide una reunión
+  con un asesor y ahí se coordina el precio final y los pagos.
+- Para iniciar la fabricación se exige un anticipo del 50 % del precio acordado (porcentaje editable).
+- Formas de pago: QR, efectivo, transferencia y cheque. Los pagos los registra el Admin.
+- Tienda en Santa Cruz de la Sierra (4to anillo y calle Las Anguilas, a una cuadra de la radial 19); atención de 7:30 a
+  21:00. Fabricación de un portón: de 3 semanas a 1 mes. Instalación a nivel nacional.
+- **Traslado:** si la instalación queda a 45 minutos o más de la ciudad, se cobra un adicional que se acuerda en la
+  reunión. Se elimina el recargo fijo de 150 Bs (el bot ya no suma nada; solo anota que es fuera de la ciudad).
+- **Saldo:** el 50 % restante se paga al instalar. No se puede cerrar la instalación (`ENTREGADO`) con saldo pendiente.
+- WhatsApp del encargado para los avisos: por ahora, el del responsable del proyecto (se edita en Configuración).
+- Si falta madera para un pedido, o el stock baja del mínimo, se avisa al Admin en el panel y por WhatsApp.
+
+#### Parte A — Ajustes de venta (en local)
+
+**Flujo:**
+
+```
+COTIZADO ──"quiero reunión"──► REUNIÓN SOLICITADA ──el asesor fija fecha──► REUNIÓN AGENDADA
+(precio referencial)            (con la preferencia de horario del cliente)         │ reunión: precio final acordado
+                                                                                     │ y pagos registrados
+                         anticipo ≥ 50 % ─► "Iniciar producción" ─► EN_PRODUCCION → … (Sprint 5)
+                                                                 └► REVISION_STOCK + aviso, si falta madera
+```
+
+**Base de datos (una migración):**
+- `pagos` reemplaza a `pagos_qr`: monto, método (`QR`, `EFECTIVO`, `TRANSFERENCIA`, `CHEQUE`), referencia (número de
+  cheque o de transacción), quién lo registró y cuándo. Un pago no se borra: se **anula** con un motivo.
+- `configuracion_negocio` (una sola fila, editable por el Admin): dirección, enlace de Google Maps, horarios, formas
+  de pago, tiempo de fabricación, cobertura de instalación, porcentaje de anticipo (50 %) y WhatsApp del encargado que
+  recibe los avisos.
+- `pedidos`: `fecha_reunion` y la preferencia de horario que dio el cliente. `total_final` pasa a ser el **precio
+  final acordado**: nace igual al referencial y el Admin lo cambia con un motivo que queda en el historial.
+- Estados: `PENDIENTE_PAGO` se reemplaza por `REUNION_SOLICITADA` y `REUNION_AGENDADA`. `REVISION_STOCK` se mantiene
+  para el pedido con anticipo pero sin madera.
+
+**Reglas transaccionales (§2.3 se adapta):**
+- **Iniciar producción** (Admin): solo con pagos ≥ 50 % del precio acordado. Usa la misma transacción ACID del Sprint 4
+  (pedido y madera bloqueados, descuento una sola vez). Si la madera no alcanza, el pedido queda en `REVISION_STOCK` y
+  se avisa al Admin. Con stock repuesto, "Reintentar" (Sprint 5) lo pasa a producción.
+- El saldo siempre es precio acordado − pagos vigentes.
+
+**Avisos al Admin (en este sprint):**
+- Pedido sin madera suficiente, o stock por debajo del mínimo tras una salida: mensaje en el panel en ese momento,
+  alerta en el Dashboard y WhatsApp al encargado.
+- Nueva solicitud de reunión: alerta en el Dashboard y WhatsApp al encargado.
+- Mientras no esté conectada la app de Meta, los WhatsApp quedan en modo simulado. Con Meta real hacen falta plantillas
+  aprobadas (Parte B).
+
+**Bot de WhatsApp:**
+- Consultas generales sin cobro: ubicación con el enlace de Google Maps, horarios, formas de pago, tiempo de
+  fabricación, cobertura y anticipo. Las respuestas salen de `configuracion_negocio`.
+- Cotización y proforma con "precio referencial; el precio final se acuerda con el asesor". Después pregunta si quiere
+  agendar una reunión con un asesor (*Sí, agendar* · *Tengo dudas* · *Ahora no*), y si acepta, pide el día y el horario
+  que le convienen.
+- Avisa al cliente cuando la reunión queda agendada y cuando empieza la producción.
+- "¿Cómo va mi pedido?" responde con el estado y la fase reales (pendiente del Sprint 5).
+
+**Panel:**
+- Página **Ventas**: cotizaciones y reuniones por agendar, con la preferencia del cliente. Admin y Ventas fijan la
+  fecha de la reunión, que aparece en el calendario.
+- Ficha del pedido:
+  - Precio referencial y precio acordado (editable, con motivo).
+  - Pagos: registro, lista y anulación (Admin).
+  - Saldo y porcentaje pagado.
+  - Botón **Iniciar producción**, activo desde el 50 %.
+- Página **Configuración** (Admin): los datos del negocio que responde el bot y el WhatsApp del encargado.
+- Dashboard: reuniones por agendar, pedidos sin madera, ventas del mes (pagos del mes) y stock bajo (pendiente del
+  Sprint 5).
+
+**Se retira:** la pasarela simulada (`mockQr`), su webhook, `POST /api/pagos/qr`, `POST /api/dev/pagos/:id/simular` y
+`npm run pagos:simular`.
+
+**Pruebas:**
+- Jest:
+  - Iniciar producción por debajo del 50 % (rechazado) y desde el 50 %.
+  - Dos pedidos que compiten por la última madera: uno pasa a producción y el otro a revisión de stock, con aviso.
+  - Pago anulado.
+  - Precio acordado auditado.
+  - Avisos al encargado.
+  - Permisos por rol.
+- Python: los mensajes nuevos del bot.
+- Se adapta el contenido de prueba de Supabase y se regenera el diccionario de datos.
+
+**Verificación de la parte A (2026-11-25):**
+- Migración `1793620808000_venta-con-reunion-y-anticipo`: aplica, se revierte y se vuelve a aplicar en `machobol_test`.
+  Aplicada en Supabase (los pagos que entraron por la pasarela pasaron a `pagos`) y en la base local de respaldo.
+- 145 pruebas Jest (nuevas: pagos, ventas y configuración; adaptadas: logística, pedidos, API interna y WhatsApp).
+  Incluyen anticipo por debajo y por encima del 50 %, dos pedidos que compiten por la última madera, avisos al
+  encargado, saldo pendiente al cerrar la instalación, pagos inmutables y permisos por rol.
+- 33 pruebas Python (nuevas: consultas generales y estado del pedido; medidas que un dato dudoso ya no borra).
+- Bot reentrenado (intent `consultar_informacion`). Validación cruzada de 5 particiones sobre 417 ejemplos de 13 intents:
+  F1 ponderado de intents **0,918** (mínimo 0,85; el más bajo, `consultar_productos`, 0,831) y de entidades 0,893.
+  Un primer intento dio 0,894: los ejemplos genéricos ("quiero información") chocaban con `consultar_productos` y se
+  reescribieron. Punta a punta con el simulador contra Supabase: consultas de
+  ubicación, pagos, fabricación y cobertura sin cobro; cotización → "Sí, agendar" → horario → reunión solicitada;
+  "¿cómo va mi pedido?" con estado real y sin mostrar pedidos ajenos.
+- Panel: compila (`vite build`). Acciones de venta probadas por la API contra Supabase (agendar, precio acordado,
+  anticipo, iniciar producción rechazada sin anticipo).
+- Scripts de Supabase regenerados: `machobol_supabase.sql` (9 migraciones), `verificar.sql` (16 comprobaciones ✅) y
+  `limpiar-datos-de-prueba.sql` (probado con ROLLBACK).
+
+#### Parte B — Despliegue en la nube
+
+- API, Rasa, acciones y panel empaquetados con Docker Compose, en un servidor de AWS en São Paulo, junto a Supabase.
+  Cuenta creada el 2026-11-24 (plan gratuito, 100 USD de crédito hasta el 2027-05-24): primero se confirma qué
+  servicios permite ese plan.
+- HTTPS con dominio propio.
+- Endurecimiento: CORS limitado, modo producción, secretos nuevos y contraseña nueva de la base.
+- Copia diaria de la base.
+- App de Meta: webhook en el dominio, número de prueba y plantillas enviadas a aprobación (avisos al cliente y al
+  encargado).
+
+**Criterios de aceptación:**
+- Una pregunta como "¿dónde están?" recibe la dirección y el mapa, sin ningún cobro.
+- Una cotización aceptada termina en una reunión solicitada que el asesor ve en el panel.
+- No se puede iniciar la producción por debajo del 50 %; desde el 50 % la madera se descuenta una sola vez.
+- Si falta madera, el pedido queda en revisión de stock y el encargado recibe el aviso.
+- `https://dominio` abre el panel con HTTPS, el bot responde por WhatsApp y el sistema se levanta solo tras reiniciar
+  el servidor.
+
+---
+
+### Sprint 7 — Pruebas finales y entrega 📝 (propuesto)
+
+- Los casos UAT sobre el sistema desplegado, con los tres roles y conversaciones reales de WhatsApp.
+- Rendimiento medido en el servidor desplegado, con los números finales para la tesis.
+- Ajustes según las pruebas y reentrenamiento del bot con las frases reales que no entendió.
+- Limpieza de los datos de prueba (`docs/supabase/limpiar-datos-de-prueba.sql`) y puesta en marcha.
+- Documentación final: diccionario de datos, manual de usuario y README de instalación.
 
 ---
 
@@ -485,7 +637,7 @@ Detectado en esta máquina (Windows 10) el 2026-11-02:
 | Dos pagos compiten por la última madera | `SELECT ... FOR UPDATE` + CHECK ≥ 0 + prueba de concurrencia automatizada |
 | Errores de redondeo con decimales | Aritmética entera en centímetros y centavos; pruebas tabuladas |
 | Medidas ambiguas en el chat ("4 por 2") | El bot confirma explícitamente alto y ancho antes de cotizar |
-| Cobro exitoso sin stock disponible | Pre-validación antes del QR + estado `REVISION_STOCK` con alerta al Admin |
+| Anticipo cobrado sin stock disponible | Al iniciar la producción, `REVISION_STOCK` + aviso al encargado (panel, Dashboard y WhatsApp); "Reintentar" al reponer la madera |
 
 ---
 
@@ -502,9 +654,9 @@ Todos los supuestos quedaron resueltos el 2026-11-02:
 | **Fases** | Las 11 fases de §2.4 son definitivas. | Seed de `fases_produccion` |
 | **Consumo de madera** | 1 m² de portón consume 1 m² de madera, más un 10 % de merma. | `productos.factor_consumo = 1`, `merma_pct = 10` |
 | **Troca** | m² = ancho (pulg) × largo (pies); el espesor solo clasifica la madera. | Ingreso de inventario (Sprint 2) |
-| **Pago** | Se exige el pago total de la cotización por QR. | `POST /api/pagos/qr` (Sprint 4) |
-| **Validez y vencimientos** | La cotización mantiene su precio 15 días; cada QR vence a los 60 minutos (ambos configurables). | `COTIZACION_VALIDEZ_DIAS`, `PAGOS_QR_VIGENCIA_MINUTOS` (provisional, Sprint 4) |
-| **Recargo de transporte** | Transporte/viáticos de 150 Bs, solo si la entrega es fuera de la ciudad (a más de 45 min). | `accesorios` con `tipo_adicional = 'RECARGO'` |
+| **Pago** | ~~Pago total de la cotización por QR~~. **Desde el 2026-11-25:** el bot no cobra; cotiza un precio referencial y agenda una reunión con un asesor, donde se acuerda el precio final. La fabricación empieza con un anticipo del 50 % (editable). Se acepta QR, efectivo, transferencia y cheque; los pagos los registra el Admin. | Sprint 6 |
+| **Validez** | La cotización mantiene su precio referencial 15 días (configurable). | `COTIZACION_VALIDEZ_DIAS` |
+| **Recargo de transporte** | ~~150 Bs fijos fuera de la ciudad~~. **Desde el 2026-11-25:** a 45 minutos o más de la ciudad se cobra un adicional que se acuerda en la reunión. | Sprint 6 |
 | **Parques infantiles** | Precio fijo de catálogo, sin la fórmula por m². | `productos.modo_precio = 'FIJO'` |
 | **Compatibilidad** | Cada motor solo aplica a su tipo de portón; la puerta de ingreso y el transporte aplican a ambos. | `accesorios.tipo_porton_compatible` |
 

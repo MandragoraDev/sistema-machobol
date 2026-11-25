@@ -77,8 +77,7 @@ Edita `backend/.env`:
 - `ADMIN_EMAIL` y `ADMIN_PASSWORD`: credenciales del primer usuario Admin del panel.
 - `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` y `SERVICE_TOKEN`: secretos del webhook y del asistente
   (ver la sección 3). Mientras no tengas la app de Meta, pon valores aleatorios.
-- `PAGOS_WEBHOOK_SECRET`: secreto con que la pasarela firma sus callbacks (con la pasarela simulada, cualquier valor
-  aleatorio de 32 caracteres o más). `COTIZACION_VALIDEZ_DIAS` y `PAGOS_QR_VIGENCIA_MINUTOS` tienen valores por defecto.
+- `COTIZACION_VALIDEZ_DIAS`: días que se mantiene el precio referencial de una cotización (15 por defecto).
 
 Luego:
 
@@ -143,13 +142,20 @@ npm run whatsapp:simular -- --firma-invalida "hola"       # la API responde 401
 
 Mientras el túnel está abierto, toda la API es accesible desde internet: ciérralo (Ctrl+C) al terminar de probar.
 
-### 4. Cotizaciones, pedidos y pagos QR
+### 4. Venta: cotización, reunión, pagos y producción
 
-El cotizador aplica la fórmula del [plan](PLAN_MACHOBOL.md#21-cotizador-paramétrico-regla-fija) con aritmética entera
-(centímetros y centavos) y cobra el **monto exacto**, sin redondeos. El precio por m² depende del tipo de portón y de la
-madera que elige el cliente: el Admin lo fija en **Inventario → Editar madera** (una madera sin precio no se ofrece).
-Cada cotización crea un pedido `MCH-AAAA-NNNN` con los precios congelados y su proforma en PDF. La madera se descuenta
-**solo** cuando la pasarela confirma el pago, dentro de una transacción ACID (`SELECT … FOR UPDATE`).
+El bot **nunca cobra**. Responde consultas (ubicación, horario, formas de pago, tiempo de fabricación, cobertura) con
+los datos que el Admin edita en **Configuración**, y cotiza un **precio referencial** con la fórmula del
+[plan](PLAN_MACHOBOL.md#21-cotizador-paramétrico-regla-fija) (aritmética entera, sin redondeos). Si al cliente le agrada,
+pide una **reunión con un asesor** y el día y horario que le convienen; el encargado recibe un aviso por WhatsApp.
+
+En el panel, **Ventas** lista las cotizaciones y las reuniones por agendar. En la ficha del pedido:
+1. Admin o Ventas **agendan la reunión**: el cliente recibe la fecha por WhatsApp.
+2. El Admin registra el **precio final acordado** (con motivo; queda en el historial) y los **pagos** que recibe
+   (QR del negocio, efectivo, transferencia o cheque). Un pago no se borra: se anula con un motivo.
+3. Con el **anticipo del 50 %** cubierto, el Admin pulsa **Iniciar producción**: la madera se descuenta en una
+   transacción ACID (`SELECT … FOR UPDATE`). Si no alcanza, el pedido queda en revisión de stock y se avisa al encargado.
+4. El **saldo** se paga al instalar: la instalación no se cierra mientras quede saldo por registrar.
 
 | Endpoint | Quién | Qué hace |
 |---|---|---|
@@ -158,32 +164,27 @@ Cada cotización crea un pedido `MCH-AAAA-NNNN` con los precios congelados y su 
 | `PUT /api/catalogo/precios/:maderaId` | Admin | Precio por m² de una madera para cada tipo de portón |
 | `POST /api/pedidos` | Admin, Ventas | Cotiza y crea el pedido `COTIZADO` |
 | `GET /api/pedidos/:codigo` · `/proforma` | Todos · Admin, Ventas | Detalle del pedido · proforma en PDF |
-| `POST /api/pagos/qr` | Admin, Ventas | QR por el total (verifica antes que haya madera) |
-| `POST /api/webhooks/pagos` | Pasarela (firma HMAC) | Confirma o rechaza el pago |
-| `GET /api/internal/maderas` · `POST /api/internal/cotizaciones` · `/pedidos/:codigo/pago-qr` | Rasa (`X-Service-Token`) | Lo mismo, para el asistente |
-| `POST /api/dev/pagos/:id/simular` | Simuladores (`X-Service-Token`) | Simula el cobro; no existe en producción |
+| `GET /api/ventas/pedidos` · `/resumen` | Admin, Ventas | Pedidos en etapa de venta · contadores del Dashboard |
+| `PATCH /api/ventas/pedidos/:codigo/reunion` | Admin, Ventas | Fecha y hora de la reunión |
+| `PATCH /api/ventas/pedidos/:codigo/precio` | Admin | Precio final acordado, con motivo |
+| `POST /api/ventas/pedidos/:codigo/iniciar-produccion` | Admin | Con el anticipo cubierto, descuenta la madera y pasa a la fase 1 |
+| `POST /api/pagos` · `/api/pagos/:id/anular` | Admin | Registra un pago recibido · lo anula con motivo |
+| `GET` · `PUT /api/configuracion` | Todos · Admin | Datos del negocio que responde el bot y WhatsApp del encargado |
+| `/api/internal/*` (`catalogo`, `maderas`, `cotizaciones`, `negocio`, `pedidos/estado`, `pedidos/:codigo/reunion`) | Rasa (`X-Service-Token`) | Lo mismo, para el asistente |
 
-**Simular una venta completa por WhatsApp** (API, Rasa y acciones levantados):
-
-1. En **Inventario**, cada madera que quieras ofrecer necesita su precio por m² (Editar madera) y stock: un portón de
-   4 × 2,20 m consume 9,68 m². El seed solo trae precios para **Cedro 1″**.
-2. `npm run whatsapp:simular` y escribe, por ejemplo, "quiero un portón corredizo de 4 por 2,20". El bot confirma las
-   medidas, te ofrece las maderas con su precio, cotiza, envía la proforma (en modo simulado se guarda en
-   `backend/tmp/whatsapp-simulado/`) y pregunta si confirmas.
-3. Al confirmar recibes el QR (también en esa carpeta). Escribe `/pagar` para que la pasarela simulada lo cobre
-   (o `/rechazar`). El bot avisa del pago y el pedido pasa a producción con la madera descontada.
-
-Fuera del chat: `npm run pagos:simular -- MCH-2026-0001` (o `--fallido`) cobra el QR vigente de un pedido.
+**Simular una venta por WhatsApp** (API, Rasa y acciones levantados): `npm run whatsapp:simular`, escribe "quiero un
+portón corredizo de 4 por 2,20" y sigue al bot hasta la cotización (la proforma queda en `backend/tmp/whatsapp-simulado/`).
+Responde "sí" para agendar y escribe el horario que prefieres: el pedido aparece en **Ventas** como reunión solicitada.
 
 ### 5. Logística, trazabilidad y pruebas
 
-En el panel, **Logística y trazabilidad** muestra los pedidos pagados: en producción (fases 1 a 10 del taller), en ruta
+En el panel, **Logística y trazabilidad** muestra los pedidos con anticipo: en producción (fases 1 a 10 del taller), en ruta
 a instalación (fase 11) y entregados. Admin y Taller los avanzan de a un paso; el Admin puede retroceder con motivo;
 Ventas solo consulta. Cada cambio queda en un historial inmutable con fecha, hora exacta, usuario y motivo.
 
 ```bash
 cd backend
-npm run demo:pedidos            # 4 pedidos pagados de demostración, en distintas etapas
+npm run demo:pedidos            # pedidos de demostración: 2 en etapa de venta y 4 con anticipo, en distintas etapas
 npm run pruebas:rendimiento     # tiempos de respuesta de los endpoints principales (API levantada)
 ```
 
@@ -202,7 +203,6 @@ Las pruebas de aceptación (UAT) y la medición de tiempos se describen en [docs
 | `npm run db:seed` | Carga los datos base (idempotente: no sobrescribe lo editado) |
 | `npm run db:migration:create -- <nombre>` | Crea una nueva migración SQL |
 | `npm run whatsapp:simular` | Simula un cliente de WhatsApp contra el webhook local (ver las secciones 3 y 4) |
-| `npm run pagos:simular -- <código>` | Simula el cobro (o con `--fallido`, el rechazo) del QR vigente de un pedido |
-| `npm run demo:pedidos` | Crea pedidos pagados de demostración en distintas etapas (consume madera; no se pueden borrar) |
+| `npm run demo:pedidos` | Crea pedidos de demostración en venta y en producción (consume madera; no se pueden borrar) |
 | `npm run pruebas:rendimiento` | Mide los tiempos de respuesta de los endpoints principales y guarda un informe (ver docs/UAT) |
 | `npm run tunel` | Abre un túnel HTTPS público hacia la API con cloudflared, para el webhook de Meta |

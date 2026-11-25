@@ -5,13 +5,13 @@
 -- historial y movimientos de inventario; quita la madera y los usuarios de prueba, y deja el stock en 0.
 -- Conserva el catálogo, los precios del Cedro, los estados, las fases y el usuario Administrador.
 --
--- El historial de pedidos no admite UPDATE ni DELETE (trigger fila por fila); TRUNCATE lo vacía entero, y solo puede
--- hacerlo el dueño de las tablas. Por eso esta limpieza es deliberada y se hace una única vez.
+-- El historial de pedidos y los pagos no admiten DELETE (triggers fila por fila); TRUNCATE los vacía enteros, y solo
+-- puede hacerlo el dueño de las tablas. Por eso esta limpieza es deliberada y se hace una única vez.
 -- ====================================================================================================
 
 BEGIN;
 
-TRUNCATE historial_pedido, pagos_qr, pedido_accesorios, movimientos_inventario, mensajes_whatsapp, pedidos, clientes
+TRUNCATE historial_pedido, pagos, pedido_accesorios, movimientos_inventario, mensajes_whatsapp, pedidos, clientes
   RESTART IDENTITY;
 
 -- Madera de prueba (Tajibo, con precios inventados para probar la elección de madera).
@@ -30,7 +30,7 @@ COMMIT;
 SELECT (SELECT count(*) FROM clientes)          AS clientes,
        (SELECT count(*) FROM pedidos)           AS pedidos,
        (SELECT count(*) FROM historial_pedido)  AS historial,
-       (SELECT count(*) FROM pagos_qr)          AS pagos,
+       (SELECT count(*) FROM pagos)             AS pagos,
        (SELECT count(*) FROM mensajes_whatsapp) AS mensajes,
        (SELECT count(*) FROM inventario_madera) AS maderas,
        (SELECT sum(stock_actual_m2) FROM inventario_madera) AS stock_m2,

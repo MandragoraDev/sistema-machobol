@@ -3,7 +3,7 @@ const { authenticate, authorize } = require('../../middlewares/auth');
 const controller = require('./logistica.controller');
 
 // Calendario logístico y trazabilidad (R-13). Ver: todos los roles. Avanzar y programar la instalación: Admin y Taller.
-// Retroceder (con motivo) y reintentar la producción de un pedido sin madera: solo Admin (PLAN §2.5).
+// Retroceder (con motivo) y reintentar la producción de un pedido que esperaba madera: solo Admin (PLAN §2.5).
 const router = Router();
 
 router.use(authenticate);

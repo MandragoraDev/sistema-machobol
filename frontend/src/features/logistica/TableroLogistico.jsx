@@ -4,7 +4,7 @@ import { describirPorton } from './porton.js';
 
 // Tablero Kanban simple: una columna por estado operativo. Las fases (1 a 11) se ven dentro de cada tarjeta.
 const COLUMNAS = [
-  { estado: 'REVISION_STOCK', titulo: 'Esperan madera', ayuda: 'Pagados sin stock suficiente', soloSiHay: true },
+  { estado: 'REVISION_STOCK', titulo: 'Esperan madera', ayuda: 'Con anticipo, sin stock suficiente', soloSiHay: true },
   { estado: 'EN_PRODUCCION', titulo: 'En producción', ayuda: 'Fases 1 a 10, en el taller' },
   { estado: 'EN_RUTA', titulo: 'En ruta / instalación', ayuda: 'Fase 11' },
   { estado: 'ENTREGADO', titulo: 'Entregados / instalados', ayuda: 'Últimos 30 días' },

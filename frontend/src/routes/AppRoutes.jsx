@@ -7,6 +7,8 @@ import DashboardPage from '../features/dashboard/DashboardPage.jsx';
 import InventarioPage from '../features/inventario/InventarioPage.jsx';
 import UsuariosPage from '../features/usuarios/UsuariosPage.jsx';
 import LogisticaPage from '../features/logistica/LogisticaPage.jsx';
+import VentasPage from '../features/ventas/VentasPage.jsx';
+import ConfiguracionPage from '../features/configuracion/ConfiguracionPage.jsx';
 
 export default function AppRoutes() {
   const { usuario } = useAuth();
@@ -25,6 +27,22 @@ export default function AppRoutes() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/inventario" element={<InventarioPage />} />
         <Route path="/logistica" element={<LogisticaPage />} />
+        <Route
+          path="/ventas"
+          element={
+            <RutaProtegida roles={['ADMIN', 'VENTAS']}>
+              <VentasPage />
+            </RutaProtegida>
+          }
+        />
+        <Route
+          path="/configuracion"
+          element={
+            <RutaProtegida roles={['ADMIN']}>
+              <ConfiguracionPage />
+            </RutaProtegida>
+          }
+        />
         <Route
           path="/usuarios"
           element={

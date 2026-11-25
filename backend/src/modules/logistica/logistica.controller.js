@@ -2,7 +2,7 @@ const { validar } = require('../../utils/validar');
 const { codigo: esquemaCodigo } = require('../pedidos/pedidos.schemas');
 const esquemas = require('./logistica.schemas');
 const logisticaService = require('./logistica.service');
-const pagosService = require('../pagos/pagos.service');
+const ventasService = require('../ventas/ventas.service');
 
 const codigo = (req) => validar(esquemaCodigo, req.params.codigo);
 
@@ -29,8 +29,9 @@ async function programarInstalacion(req, res) {
   res.json(await logisticaService.programarInstalacion(codigo(req), fecha_instalacion));
 }
 
+/** Pedido en revisión de stock (anticipo cubierto, faltaba madera): se reintenta tras reponerla. */
 async function reintentarProduccion(req, res) {
-  await pagosService.reintentarProduccion(codigo(req), { usuarioId: req.usuario.id });
+  await ventasService.iniciarProduccion(codigo(req), req.usuario);
   res.json(await logisticaService.detalle(codigo(req)));
 }
 

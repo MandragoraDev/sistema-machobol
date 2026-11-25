@@ -76,11 +76,15 @@ function detalle(doc, pedido, y) {
   return y + 12;
 }
 
-/** El total a pagar es la suma exacta del portón y sus adicionales (sin redondeos, decisión del 2026-11-06). */
+/**
+ * El total de la cotización es un precio referencial (suma exacta del portón y sus accesorios). Si el Admin ya registró
+ * el precio acordado con el cliente, se muestra ese.
+ */
 function totales(doc, pedido, y) {
   const lineas = [
     ['Subtotal del portón', bs(pedido.subtotal_base)],
-    ...(Number(pedido.total_adicionales) > 0 ? [['Accesorios y recargos', bs(pedido.total_adicionales)]] : []),
+    ...(Number(pedido.total_adicionales) > 0 ? [['Accesorios', bs(pedido.total_adicionales)]] : []),
+    ...(pedido.precio_acordado ? [['Total referencial de la cotización', bs(pedido.total_exacto)]] : []),
   ];
   for (const [etiqueta, valor] of lineas) {
     doc.fillColor(COLOR.texto).font('Helvetica').fontSize(10).text(etiqueta, X + 162, y, { width: 250, align: 'right' });
@@ -89,20 +93,22 @@ function totales(doc, pedido, y) {
   }
   y += 4;
   doc.rect(X + 262, y, 250, 26).fill(COLOR.primario);
-  doc.fillColor(COLOR.crema).font('Helvetica-Bold').fontSize(12).text('TOTAL A PAGAR (Bs)', X + 270, y + 8);
+  doc.fillColor(COLOR.crema).font('Helvetica-Bold').fontSize(12)
+    .text(pedido.precio_acordado ? 'PRECIO ACORDADO (Bs)' : 'TOTAL REFERENCIAL (Bs)', X + 270, y + 8);
   doc.text(bs(pedido.total_final), X + 427, y + 8, { width: 79, align: 'right' });
   return y + 44;
 }
 
-function condiciones(doc, pedido, y) {
-  const fueraDeCiudad = pedido.adicionales.some((a) => a.tipo_adicional === 'RECARGO');
+function condiciones(doc, pedido, negocio, y) {
+  const anticipo = `${String(Number(negocio.anticipo_pct)).replace('.', ',')} %`;
   const lineas = [
-    `Precios en bolivianos (Bs). El precio se mantiene hasta el ${formatearFecha(pedido.valido_hasta)}.`,
-    'Forma de pago: el total, mediante QR. La fabricación empieza cuando se confirma el pago.',
-    'Fabricación en 11 etapas, desde el aserradero hasta la instalación.',
-    fueraDeCiudad
-      ? 'Incluye transporte y viáticos por entrega fuera de la ciudad (a más de 45 minutos).'
-      : 'Entrega e instalación dentro de la ciudad.',
+    `Precios en bolivianos (Bs). Es un precio referencial, válido hasta el ${formatearFecha(pedido.valido_hasta)}: el precio final se acuerda con el asesor.`,
+    `Para iniciar la fabricación se requiere un anticipo del ${anticipo}; el saldo se paga al momento de la instalación.`,
+    `Formas de pago: ${negocio.formas_pago}.`,
+    `Tiempo de fabricación: ${negocio.tiempo_fabricacion.charAt(0).toLowerCase()}${negocio.tiempo_fabricacion.slice(1)}, en 11 etapas, desde el aserradero hasta la instalación.`,
+    pedido.fuera_ciudad
+      ? 'Instalación fuera de la ciudad (a 45 minutos o más): el costo del traslado se acuerda con el asesor.'
+      : 'Instalación dentro de la ciudad.',
   ];
   doc.fillColor(COLOR.primario).font('Helvetica-Bold').fontSize(10).text('Condiciones', X, y);
   doc.fillColor(COLOR.texto).font('Helvetica').fontSize(9).list(lineas, X, y + 16, { bulletRadius: 1.5, textIndent: 10, width: ANCHO });
@@ -116,7 +122,7 @@ function pie(doc) {
 }
 
 /** Genera la proforma de un pedido (el objeto que devuelve pedidosService) y la devuelve como Buffer. */
-function generarProforma(pedido) {
+function generarProforma(pedido, negocio) {
   return new Promise((resolver, rechazar) => {
     const doc = new PDFDocument({
       size: 'LETTER',
@@ -132,7 +138,7 @@ function generarProforma(pedido) {
     let y = datosCliente(doc, pedido.cliente);
     y = detalle(doc, pedido, y);
     y = totales(doc, pedido, y);
-    condiciones(doc, pedido, y);
+    condiciones(doc, pedido, negocio, y);
     pie(doc);
     doc.end();
   });

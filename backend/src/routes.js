@@ -10,7 +10,8 @@ const pedidosRoutes = require('./modules/pedidos/pedidos.routes');
 const pagosRoutes = require('./modules/pagos/pagos.routes');
 const catalogoRoutes = require('./modules/catalogo/catalogo.routes');
 const logisticaRoutes = require('./modules/logistica/logistica.routes');
-const env = require('./config/env');
+const ventasRoutes = require('./modules/ventas/ventas.routes');
+const configuracionRoutes = require('./modules/configuracion/configuracion.routes');
 
 // Punto único donde cada módulo monta su router bajo /api.
 const router = Router();
@@ -24,13 +25,9 @@ router.use('/internal', internalRoutes);
 router.use('/catalogo', catalogoRoutes);
 router.use('/cotizaciones', cotizadorRoutes);
 router.use('/pedidos', pedidosRoutes);
-router.use('/pagos', pagosRoutes.pagos);
+router.use('/pagos', pagosRoutes);
+router.use('/ventas', ventasRoutes);
 router.use('/logistica', logisticaRoutes);
-router.use('/webhooks/pagos', pagosRoutes.webhook);
-
-// Herramientas de desarrollo (simular pagos). Nunca se montan en producción.
-if (env.nodeEnv !== 'production') {
-  router.use('/dev', pagosRoutes.dev);
-}
+router.use('/configuracion', configuracionRoutes);
 
 module.exports = router;

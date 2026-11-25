@@ -22,11 +22,16 @@ rules:
       - intent: hablar_con_asesor
       - action: utter_derivar_asesor
 
-  # La consulta real por código de pedido llega en el Sprint 5.
   - rule: Estado del pedido
     steps:
       - intent: consultar_estado_pedido
-      - action: utter_estado_pedido
+      - action: action_consultar_estado_pedido
+
+  # Ubicación, horario, formas de pago, tiempo de fabricación, cobertura: nunca hay cobro por preguntar.
+  - rule: Consulta general
+    steps:
+      - intent: consultar_informacion
+      - action: action_informar_negocio
 
   - rule: Mensaje no entendido
     steps:
@@ -86,7 +91,7 @@ rules:
       - action: formulario_confirmar_pedido
       - active_loop: formulario_confirmar_pedido
 
-  - rule: Responder a la confirmación del pedido (QR o pedido guardado)
+  - rule: Responder a la confirmación del pedido (reunión solicitada o cotización guardada)
     condition:
       - active_loop: formulario_confirmar_pedido
     steps:
@@ -186,7 +191,16 @@ rules:
       - active_loop: formulario_cotizacion
     steps:
       - intent: consultar_estado_pedido
-      - action: utter_estado_pedido
+      - action: action_consultar_estado_pedido
+      - action: formulario_cotizacion
+      - active_loop: formulario_cotizacion
+
+  - rule: Consulta general durante la cotización
+    condition:
+      - active_loop: formulario_cotizacion
+    steps:
+      - intent: consultar_informacion
+      - action: action_informar_negocio
       - action: formulario_cotizacion
       - active_loop: formulario_cotizacion
 
@@ -289,7 +303,16 @@ rules:
       - active_loop: formulario_confirmar_pedido
     steps:
       - intent: consultar_estado_pedido
-      - action: utter_estado_pedido
+      - action: action_consultar_estado_pedido
+      - action: formulario_confirmar_pedido
+      - active_loop: formulario_confirmar_pedido
+
+  - rule: Consulta general durante la confirmación
+    condition:
+      - active_loop: formulario_confirmar_pedido
+    steps:
+      - intent: consultar_informacion
+      - action: action_informar_negocio
       - action: formulario_confirmar_pedido
       - active_loop: formulario_confirmar_pedido
 

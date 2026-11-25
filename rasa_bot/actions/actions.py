@@ -1,7 +1,8 @@
-"""Acciones del asistente: catálogo, formulario de cotización y envío de la solicitud al backend."""
+"""Acciones del asistente: catálogo, consultas generales, cotización, solicitud de reunión y estado de los pedidos."""
 import json
 import logging
 import re
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Text, Tuple
 
 from rasa_sdk import Action, FormValidationAction, Tracker
@@ -10,8 +11,9 @@ from rasa_sdk.executor import CollectingDispatcher
 from rasa_sdk.types import DomainDict
 
 from . import backend
-from .formato import formatear_bs, formatear_fecha, formatear_fecha_hora, formatear_m2, formatear_metros
+from .formato import formatear_bs, formatear_fecha, formatear_m2, formatear_metros
 from .maderas import buscar_madera
+from .negocio import describir_pedidos, responder
 from .medidas import (
     MEDIDA_MAXIMA,
     MEDIDA_MINIMA,
@@ -24,7 +26,7 @@ from .medidas import (
 logger = logging.getLogger(__name__)
 
 SLOTS_COTIZACION = ["tipo_porton", "ancho", "alto", "medidas_confirmadas", "tipo_madera", "madera_id", "accesorios", "fuera_ciudad"]
-SLOTS_PEDIDO = ["pedido_codigo", "pedido_confirmado"]
+SLOTS_PEDIDO = ["pedido_codigo", "pedido_confirmado", "preferencia_reunion"]
 
 # Valor canónico de la entidad `accesorio` (sinónimos en data/nlu.yml) → prefijo de su código en el
 # catálogo y título de su botón. Qué accesorio corresponde a cada tipo de portón lo decide el catálogo.
@@ -32,8 +34,13 @@ FAMILIAS_ACCESORIO = {
     "motor": {"prefijo": "MOTOR", "boton": "Motor"},
     "puerta_ingreso": {"prefijo": "PUERTA_INGRESO", "boton": "Puerta de ingreso"},
 }
-CODIGO_TRANSPORTE = "TRANSPORTE_VIATICOS"
 BOTON_NINGUNO = {"title": "Ninguno", "payload": "/negar"}
+# Localidades a 45 minutos o más de Santa Cruz de la Sierra y otras ciudades del país (texto sin tildes).
+LOCALIDADES_FUERA = (
+    r"\b(montero|warnes|cotoca|la guardia|el torno|porongo|okinawa|portachuelo|minero|yapacani|san julian|samaipata|"
+    r"camiri|puerto suarez|puerto quijarro|san ignacio|concepcion|cochabamba|la paz|el alto|sucre|tarija|oruro|potosi|"
+    r"trinidad|cobija|riberalta)\b"
+)
 
 
 # --- Utilidades ------------------------------------------------------------------------------
@@ -175,7 +182,7 @@ async def _maderas_para(tipo: Optional[Text]) -> List[Dict[Text, Any]]:
 
 
 def _mensaje_cotizacion(pedido: Dict[Text, Any]) -> Text:
-    """Desglose del pedido que devuelve el cotizador del backend. Se cobra el monto exacto, con centavos si los hay."""
+    """Desglose del pedido que devuelve el cotizador del backend: un precio referencial (el final lo acuerda el asesor)."""
     tipo = pedido["producto"]["tipo_porton"].lower()
     lineas = [
         f"Su cotización *{pedido['codigo']}*:",
@@ -184,8 +191,13 @@ def _mensaje_cotizacion(pedido: Dict[Text, Any]) -> Text:
         f"{formatear_bs(pedido['precio_m2'])} Bs/m²: {formatear_bs(pedido['subtotal_base'])} Bs",
     ]
     lineas += [f"• {a['nombre']}: {formatear_bs(a['precio'])} Bs" for a in pedido["adicionales"]]
-    lineas.append(f"*Total a pagar: {formatear_bs(pedido['total_final'])} Bs*")
-    lineas.append(f"El precio se mantiene hasta el {formatear_fecha(pedido['valido_hasta'])}. Le envío la proforma en PDF.")
+    if pedido.get("fuera_ciudad"):
+        lineas.append("• Traslado fuera de la ciudad: se acuerda con el asesor")
+    lineas.append(f"*Total referencial: {formatear_bs(pedido['total_final'])} Bs*")
+    lineas.append(
+        f"Es un precio referencial, válido hasta el {formatear_fecha(pedido['valido_hasta'])}: el precio final se acuerda "
+        "con un asesor. Le envío la proforma en PDF."
+    )
     return "\n".join(lineas)
 
 
@@ -322,17 +334,10 @@ class ActionPreguntarFueraCiudad(Action):
         return "action_ask_fuera_ciudad"
 
     async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
-        texto = "¿La entrega e instalación será *fuera de la ciudad* (a más de 45 minutos)?"
-        try:
-            catalogo = await backend.obtener_catalogo()
-            recargo = next((a for a in catalogo["accesorios"] if a["codigo"] == CODIGO_TRANSPORTE), None)
-        except backend.ErrorBackend:
-            logger.exception("No se pudo leer el catálogo")
-            recargo = None
-        if recargo:
-            texto += f" En ese caso se suman {formatear_bs(recargo['precio'])} Bs por transporte y viáticos."
+        # El traslado no tiene un precio fijo: se acuerda con el asesor (decisión del 2026-11-25).
         dispatcher.utter_message(
-            text=texto,
+            text="¿La instalación será *fuera de la ciudad* (a 45 minutos o más)? En ese caso, el traslado tiene un "
+            "costo adicional que se acuerda con el asesor.",
             buttons=[
                 {"title": "Sí, fuera de ciudad", "payload": "/confirmar"},
                 {"title": "No, en la ciudad", "payload": "/negar"},
@@ -371,8 +376,13 @@ class ValidarFormularioCotizacion(FormValidationAction):
         texto = _texto(tracker)
         if re.search(r"\b(dentro|en la ciudad|aqui|aca|cerca)\b", texto):
             return {"fuera_ciudad": False}
-        if re.search(r"\b(fuera|afueras?|provincia|lejos|otro departamento|otra ciudad)\b", texto):
+        if re.search(r"\b(fuera|afueras?|provincia|lejos|otro departamento|otra ciudad)\b", texto) or re.search(LOCALIDADES_FUERA, texto):
             return {"fuera_ciudad": True}
+        # "Sí, es en Montero" o "no, aquí nomás": el modelo puede leerlo como otra intención, pero responde a la pregunta.
+        if re.match(r"(si|claro|asi es|exacto|correcto)\b", texto):
+            return {"fuera_ciudad": True}
+        if re.match(r"no\b", texto):
+            return {"fuera_ciudad": False}
         return {}
 
     async def extract_tipo_madera(
@@ -526,17 +536,26 @@ class ValidarFormularioConfirmarPedido(FormValidationAction):
     async def required_slots(
         self, domain_slots: List[Text], dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
     ) -> List[Text]:
-        # Si la cotización falló no hay pedido que confirmar: el formulario termina sin preguntar.
-        return domain_slots if tracker.get_slot("pedido_codigo") else []
+        # Si la cotización falló no hay pedido: el formulario termina sin preguntar. El horario de la reunión
+        # solo se pregunta si el cliente quiere agendarla.
+        if not tracker.get_slot("pedido_codigo"):
+            return []
+        return ["pedido_confirmado"] + (["preferencia_reunion"] if tracker.get_slot("pedido_confirmado") else [])
 
     def validate_pedido_confirmado(
         self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
     ) -> Dict[Text, Any]:
         return {"pedido_confirmado": value if isinstance(value, bool) else None}
 
+    def validate_preferencia_reunion(
+        self, value: Any, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict
+    ) -> Dict[Text, Any]:
+        texto = value.strip()[:300] if isinstance(value, str) else ""
+        return {"preferencia_reunion": texto or None}
+
 
 class ActionProcesarConfirmacionPedido(Action):
-    """Pedido confirmado → QR de pago (lo adjunta el backend). No confirmado → el pedido queda cotizado."""
+    """Cotización aceptada → solicitud de reunión con un asesor (sin cobro). No aceptada → la cotización queda guardada."""
 
     def name(self) -> Text:
         return "action_procesar_confirmacion_pedido"
@@ -549,26 +568,69 @@ class ActionProcesarConfirmacionPedido(Action):
 
         if not tracker.get_slot("pedido_confirmado"):
             dispatcher.utter_message(
-                text=f"Entendido. Su cotización *{codigo}* queda registrada. "
-                "Cuando quiera continuar, escríbanos y un asesor le enviará el QR de pago."
+                text=f"Entendido. Su cotización *{codigo}* queda guardada. "
+                "Cuando quiera agendar la reunión con un asesor, escríbanos por aquí."
             )
             return reinicio
 
+        preferencia = tracker.get_slot("preferencia_reunion")
         try:
-            cobro = await backend.crear_pago_qr(codigo, tracker.sender_id)
+            await backend.solicitar_reunion(codigo, tracker.sender_id, preferencia)
+            negocio = await backend.obtener_negocio()
         except backend.ErrorBackend:
-            # 409: sin madera suficiente, cotización vencida o pedido no cobrable. Lo resuelve un asesor.
-            logger.exception("No se pudo generar el QR del pedido %s", codigo)
-            dispatcher.utter_message(text="No pude generar el QR de pago en este momento. Un asesor le escribirá para completar su pedido.")
+            logger.exception("No se pudo registrar la reunión del pedido %s", codigo)
+            dispatcher.utter_message(text="No pude registrar su solicitud en este momento. Un asesor le escribirá en breve por este chat.")
             return reinicio
 
+        anticipo = f"{Decimal(str(negocio['anticipo_pct'])).normalize():f}".replace(".", ",")
         dispatcher.utter_message(
-            text=f"¡Gracias! Le envío el QR para pagar *{formatear_bs(cobro['monto'])} Bs*, el total del pedido *{codigo}*. "
-            f"Puede pagarlo desde la app de su banco hasta las {formatear_fecha_hora(cobro['expira_en'])}. "
-            "Apenas se confirme el pago, le aviso por aquí."
+            text=f"¡Listo! Registramos su solicitud de reunión para el pedido *{codigo}*"
+            + (f" ({preferencia})" if preferencia else "")
+            + ". Un asesor le escribirá para confirmar el día y la hora. "
+            f"Para iniciar la fabricación se pide un anticipo del {anticipo} % y el saldo se paga al momento de la instalación."
         )
-        dispatcher.utter_message(json_message={"adjunto": "qr_pago", "pedido": codigo})
         return reinicio
+
+
+class ActionInformarNegocio(Action):
+    """Consultas generales (ubicación, horario, formas de pago, tiempo de fabricación, cobertura). Nunca hay cobro."""
+
+    def name(self) -> Text:
+        return "action_informar_negocio"
+
+    async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
+        try:
+            negocio = await backend.obtener_negocio()
+        except backend.ErrorBackend:
+            logger.exception("No se pudieron leer los datos del negocio")
+            dispatcher.utter_message(response="utter_error_backend")
+            return []
+        dispatcher.utter_message(text=responder(tracker.latest_message.get("text") or "", negocio))
+        return []
+
+
+class ActionConsultarEstadoPedido(Action):
+    """"¿Cómo va mi pedido?": estado, etapa y saldo de los pedidos del cliente que escribe (o de uno, por su código)."""
+
+    def name(self) -> Text:
+        return "action_consultar_estado_pedido"
+
+    async def run(self, dispatcher: CollectingDispatcher, tracker: Tracker, domain: DomainDict) -> List[EventType]:
+        codigo = next(tracker.get_latest_entity_values("codigo_pedido"), None)
+        if not codigo:
+            encontrado = re.search(r"\bmch-\d{4}-\d{4,}\b", _texto(tracker))
+            codigo = encontrado.group(0) if encontrado else None
+        try:
+            pedidos = await backend.estado_pedidos(tracker.sender_id, codigo.upper() if codigo else None)
+        except backend.ErrorBackend:
+            logger.exception("No se pudo consultar el estado de los pedidos de %s", tracker.sender_id)
+            dispatcher.utter_message(response="utter_error_backend")
+            return []
+        if codigo and not pedidos:
+            dispatcher.utter_message(text=f"No encuentro el pedido {codigo.upper()} a su nombre. Revise el código, por favor.")
+            return []
+        dispatcher.utter_message(text=describir_pedidos(pedidos))
+        return []
 
 
 class ActionReiniciarCotizacion(Action):

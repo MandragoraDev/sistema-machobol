@@ -1,237 +1,102 @@
+// Pagos registrados a mano por el Admin (Sprint 6). El precio final se acuerda en persona: el sistema lleva la cuenta
+// de lo pagado, del saldo y del anticipo que se exige para iniciar la producción (configuracion_negocio.anticipo_pct).
 const db = require('../../config/db');
-const env = require('../../config/env');
-const logger = require('../../config/logger');
 const AppError = require('../../utils/AppError');
-const { formatearDecimal, formatearFecha } = require('../../utils/formato');
-const { aEntero } = require('../cotizador/cotizador.calculo');
-const inventarioService = require('../inventario/inventario.service');
+const { formatearDecimal } = require('../../utils/formato');
+const { aEntero, aTexto } = require('../cotizador/cotizador.calculo');
+const configuracionService = require('../configuracion/configuracion.service');
 const pedidosRepository = require('../pedidos/pedidos.repository');
-const { validoHasta } = require('../pedidos/pedidos.service');
-const whatsappEnvio = require('../whatsapp/whatsapp.envio');
 const pagosRepository = require('./pagos.repository');
-const pasarela = require('./pasarela');
 
-const ESTADOS_COBRABLES = ['COTIZADO', 'PENDIENTE_PAGO'];
-// Un pago en estos estados ya movió (o puso en revisión) dinero y stock: un callback repetido no lo toca.
-const ESTADOS_FINALES = ['CONFIRMADO', 'REVISION'];
+// En estos estados el pedido ya no recibe pagos.
+const ESTADOS_CERRADOS = ['CANCELADO', 'ENTREGADO'];
 
-/** El banco cobró, pero la madera no alcanza: se revierte todo y el pago pasa a revisión en otra transacción. */
-class StockInsuficiente extends Error {
-  constructor(pagoId) {
-    super('Stock de madera insuficiente para confirmar el pedido.');
-    this.pagoId = pagoId;
-  }
+/** Monto del anticipo exigido: el porcentaje del precio acordado, redondeado hacia arriba al centavo. */
+function anticipoRequerido(totalFinal, anticipoPct) {
+  const total = aEntero(totalFinal, 2);
+  const porcentaje = aEntero(anticipoPct, 2); // 50.00 → 5000n
+  return aTexto((total * porcentaje + 9999n) / 10000n, 2);
 }
 
-/**
- * Genera el cobro QR por el TOTAL del pedido (no se aceptan anticipos).
- * Antes de cobrar comprueba que haya madera suficiente; el descuento real ocurre solo al confirmarse el pago.
- * Si el pedido ya tiene un QR vigente, devuelve ese mismo (no duplica cobros).
- */
-async function crearCobroQr(codigo, { usuarioId = null } = {}) {
-  return db.withTransaction(async (client) => {
-    const pedido = await pedidosRepository.bloquear(client, { codigo });
-    if (!pedido) {
-      throw new AppError(404, `El pedido ${codigo} no existe.`);
-    }
-    if (!ESTADOS_COBRABLES.includes(pedido.estado)) {
-      throw new AppError(409, `El pedido ${codigo} está en estado «${pedido.estado_nombre}»: no admite pagos.`);
-    }
-    const vence = validoHasta(pedido.creado_en);
-    if (vence < new Date()) {
-      throw new AppError(409, `La cotización ${codigo} venció el ${formatearFecha(vence)}; hay que cotizar de nuevo.`);
-    }
-
-    const vigente = await pagosRepository.pendienteVigente(client, pedido.id);
-    if (vigente) {
-      return { pago: vigente, pedido, nuevo: false };
-    }
-    await pagosRepository.expirarVencidos(client, pedido.id);
-
-    if (pedido.madera_id && aEntero(pedido.madera_requerida_m2, 4) > 0n) {
-      const disponible = await inventarioService.stockDisponible(client, pedido.madera_id);
-      if (aEntero(disponible, 4) < aEntero(pedido.madera_requerida_m2, 4)) {
-        throw new AppError(
-          409,
-          `Stock de madera insuficiente para el pedido ${codigo}: se necesitan ${Number(pedido.madera_requerida_m2)} m² y hay ${Number(disponible)} m².`,
-        );
-      }
-    }
-
-    const expiraEn = new Date(Date.now() + env.pagos.qrVigenciaMinutos * 60_000);
-    // Con un banco real esta llamada sale por red: el candado del pedido evita generar dos cobros a la vez.
-    const cobro = await pasarela.crearCobro({ referencia: pedido.codigo, monto: pedido.total_final, expiraEn });
-    const pago = await pagosRepository.insertar(client, {
-      pedido_id: pedido.id,
-      transaccion_id: cobro.transaccionId,
-      monto: pedido.total_final,
-      qr_payload: cobro.qrPayload,
-      expira_en: expiraEn,
-    });
-    await pedidosRepository.anotarCambio(client, { usuarioId, motivo: `QR de pago ${cobro.transaccionId} generado` });
-    await pedidosRepository.cambiarEstado(client, pedido.id, 'PENDIENTE_PAGO');
-    return { pago, pedido, nuevo: true };
-  });
-}
-
-async function presentarCobro({ pago, pedido }, { conImagen = true } = {}) {
+/** Cuenta del pedido a partir de su precio acordado y de sus pagos (los anulados no cuentan). */
+function cuenta(totalFinal, pagos, anticipoPct) {
+  const pagado = pagos.filter((p) => !p.anulado_en).reduce((suma, p) => suma + aEntero(p.monto, 2), 0n);
+  const total = aEntero(totalFinal, 2);
+  const requerido = anticipoRequerido(totalFinal, anticipoPct);
   return {
-    id: pago.id,
-    pedido: pedido.codigo,
-    transaccion_id: pago.transaccion_id,
-    monto: pago.monto,
-    estado: pago.estado,
-    expira_en: pago.expira_en,
-    ...(conImagen && { qr_imagen: `data:image/png;base64,${(await pasarela.imagenQr(pago.qr_payload)).toString('base64')}` }),
+    precio_acordado: totalFinal,
+    pagado: aTexto(pagado, 2),
+    saldo: aTexto(total - pagado, 2),
+    porcentaje_pagado: total > 0n ? Number((pagado * 10000n) / total) / 100 : 0,
+    anticipo_pct: Number(anticipoPct),
+    anticipo_requerido: requerido,
+    anticipo_cubierto: pagado >= aEntero(requerido, 2),
+    pagos,
   };
 }
 
-/**
- * Transacción ACID del pago (PLAN §2.3). Los candados se toman siempre en el mismo orden
- * (pago → pedido → madera) para que dos pagos simultáneos nunca se bloqueen entre sí.
- */
-async function aplicarCallback(client, { transaccionId, estado, monto }) {
-  const pago = await pagosRepository.bloquear(client, { transaccionId });
-  if (!pago) {
-    throw new AppError(404, `Transacción desconocida: ${transaccionId}.`);
-  }
-  if (ESTADOS_FINALES.includes(pago.estado)) {
-    return { resultado: 'YA_PROCESADO', pago };
-  }
-  if (aEntero(monto, 2) !== aEntero(pago.monto, 2)) {
-    throw new AppError(400, `El monto pagado (${monto} Bs) no coincide con el cobro (${pago.monto} Bs).`);
-  }
-
-  const pedido = await pedidosRepository.bloquear(client, { id: pago.pedido_id });
-  if (estado === 'FALLIDO') {
-    if (pago.estado !== 'PENDIENTE') return { resultado: 'YA_PROCESADO', pago, pedido };
-    await pagosRepository.cambiarEstado(client, pago.id, 'FALLIDO');
-    return { resultado: 'FALLIDO', pago, pedido };
-  }
-
-  if (!ESTADOS_COBRABLES.includes(pedido.estado)) {
-    // Pedido cancelado o ya pagado con otro QR: el dinero entró y hay que revisarlo (p. ej. devolverlo).
-    await pagosRepository.cambiarEstado(client, pago.id, 'REVISION');
-    return { resultado: 'REVISION', pago, pedido };
-  }
-
-  if (pedido.madera_id && aEntero(pedido.madera_requerida_m2, 4) > 0n) {
-    const salida = await inventarioService.registrarSalidaPorPedido(client, {
-      maderaId: pedido.madera_id,
-      cantidadM2: pedido.madera_requerida_m2,
-      pedidoId: pedido.id,
-      motivo: `Pedido ${pedido.codigo}: pago QR ${transaccionId} confirmado`,
-    });
-    if (!salida) throw new StockInsuficiente(pago.id);
-  }
-  await pagosRepository.cambiarEstado(client, pago.id, 'CONFIRMADO');
-  // El trigger del historial registra el cambio a EN_PRODUCCION / fase 1 con este motivo y sin usuario (sistema).
-  await pedidosRepository.anotarCambio(client, { motivo: `Pago QR ${transaccionId} confirmado` });
-  const fase = await pedidosRepository.iniciarProduccion(client, pedido.id);
-  return { resultado: 'CONFIRMADO', pago, pedido, fase };
+async function cuentaDePedido(pedido, client) {
+  const [pagos, configuracion] = await Promise.all([
+    pagosRepository.listarDePedido(pedido.id, client),
+    configuracionService.obtener(client),
+  ]);
+  return cuenta(pedido.total_final, pagos, configuracion.anticipo_pct);
 }
 
-/** El banco ya cobró y no hay madera: el pago queda en REVISION y el pedido en REVISION_STOCK. */
-async function enviarARevisionDeStock(client, pagoId) {
-  const pago = await pagosRepository.bloquear(client, { id: pagoId });
-  if (ESTADOS_FINALES.includes(pago.estado)) {
-    return { resultado: 'YA_PROCESADO', pago };
+/** Estado de cuenta de un pedido por su código (para la ficha del panel). */
+async function cuentaPorCodigo(codigo) {
+  const pedido = await pedidosRepository.obtenerPorCodigo(codigo);
+  if (!pedido) {
+    throw new AppError(404, `El pedido ${codigo} no existe.`);
   }
-  const pedido = await pedidosRepository.bloquear(client, { id: pago.pedido_id });
-  await pagosRepository.cambiarEstado(client, pago.id, 'REVISION');
-  await pedidosRepository.anotarCambio(client, { motivo: `Pago QR ${pago.transaccion_id} recibido sin madera suficiente` });
-  await pedidosRepository.cambiarEstado(client, pedido.id, 'REVISION_STOCK');
-  return { resultado: 'REVISION_STOCK', pago, pedido };
+  return cuentaDePedido(pedido);
 }
 
-const AVISOS = {
-  CONFIRMADO: ({ pedido, fase }) => `¡Pago recibido! Su pedido *${pedido.codigo}* ya está en producción (etapa 1 de 11: ${fase.nombre}). `
-    + 'Le iremos informando el avance por este chat.',
-  REVISION_STOCK: ({ pedido }) => `Recibimos su pago del pedido *${pedido.codigo}*. Un asesor le escribirá para confirmar la fecha de inicio de la fabricación.`,
-  REVISION: ({ pedido }) => `Recibimos un pago para el pedido *${pedido.codigo}*. Un asesor lo revisará y le escribirá por este chat.`,
-  FALLIDO: ({ pedido }) => `El pago del pedido *${pedido.codigo}* no se completó. Un asesor le escribirá para ayudarle.`,
-};
-
-/** Procesa un callback ya verificado. Es idempotente: un callback repetido no vuelve a descontar stock. */
-async function procesarCallback(evento) {
-  let efecto;
-  try {
-    efecto = await db.withTransaction((client) => aplicarCallback(client, evento));
-  } catch (err) {
-    if (!(err instanceof StockInsuficiente)) throw err;
-    efecto = await db.withTransaction((client) => enviarARevisionDeStock(client, err.pagoId));
-  }
-
-  const { resultado, pago, pedido } = efecto;
-  if (resultado === 'REVISION' || resultado === 'REVISION_STOCK') {
-    // Alerta para el Admin; en el Sprint 5 también se mostrará en el Dashboard.
-    logger.warn({ pedido: pedido.codigo, transaccion: pago.transaccion_id, resultado }, 'Pago en revisión: requiere acción del Admin');
-  }
-  if (AVISOS[resultado]) {
-    whatsappEnvio.notificar(pedido.wa_id, pedido.cliente_id, AVISOS[resultado](efecto));
-  }
-  return { resultado, transaccion_id: pago.transaccion_id, pedido: pedido?.codigo ?? null };
-}
-
-/**
- * Pedido en REVISION_STOCK (cobrado sin madera): cuando el Admin repone la madera, vuelve a intentar el descuento
- * y, si alcanza, el pago se confirma y el pedido entra a la fase 1. Todo en una sola transacción.
- */
-async function reintentarProduccion(codigo, { usuarioId }) {
-  const efecto = await db.withTransaction(async (client) => {
+/** Registra un pago recibido. No puede superar el saldo: el exceso indica un error de tipeo o un precio sin actualizar. */
+async function registrar({ pedido: codigo, monto, metodo, referencia, observacion }, usuario) {
+  return db.withTransaction(async (client) => {
     const pedido = await pedidosRepository.bloquear(client, { codigo });
     if (!pedido) {
       throw new AppError(404, `El pedido ${codigo} no existe.`);
     }
-    if (pedido.estado !== 'REVISION_STOCK') {
-      throw new AppError(409, `El pedido ${codigo} no espera madera: está «${pedido.estado_nombre}».`);
+    if (ESTADOS_CERRADOS.includes(pedido.estado)) {
+      throw new AppError(409, `El pedido ${codigo} está «${pedido.estado_nombre}»: ya no recibe pagos.`);
     }
-    const pago = await pagosRepository.bloquearRevisionDePedido(client, pedido.id);
-    if (!pago) {
-      throw new AppError(409, `El pedido ${codigo} no tiene un pago en revisión.`);
+    const pagado = aEntero(await pagosRepository.totalVigente(client, pedido.id), 2);
+    const saldo = aEntero(pedido.total_final, 2) - pagado;
+    if (aEntero(monto, 2) > saldo) {
+      throw new AppError(409, `El pago supera el saldo del pedido (${formatearDecimal(aTexto(saldo, 2))} Bs). `
+        + 'Si se acordó otro precio, actualízalo primero.');
     }
-    const salida = await inventarioService.registrarSalidaPorPedido(client, {
-      maderaId: pedido.madera_id,
-      cantidadM2: pedido.madera_requerida_m2,
-      pedidoId: pedido.id,
-      motivo: `Pedido ${pedido.codigo}: producción iniciada tras reponer la madera`,
+    await pagosRepository.insertar(client, {
+      pedido_id: pedido.id,
+      monto: aTexto(aEntero(monto, 2), 2),
+      metodo,
+      referencia: referencia || null,
+      observacion: observacion || null,
+      registrado_por: usuario.id,
     });
-    if (!salida) {
-      const disponible = await inventarioService.stockDisponible(client, pedido.madera_id);
-      throw new AppError(409, `Aún falta madera: se necesitan ${Number(pedido.madera_requerida_m2)} m² y hay ${Number(disponible)} m².`);
-    }
-    await pagosRepository.cambiarEstado(client, pago.id, 'CONFIRMADO');
-    await pedidosRepository.anotarCambio(client, { usuarioId, motivo: 'Madera repuesta: producción iniciada' });
-    const fase = await pedidosRepository.iniciarProduccion(client, pedido.id);
-    return { pedido, fase };
+    return cuentaDePedido(pedido, client);
   });
-  whatsappEnvio.notificar(efecto.pedido.wa_id, efecto.pedido.cliente_id, AVISOS.CONFIRMADO(efecto));
 }
 
-/** QR del cobro vigente de un pedido (para enviarlo por WhatsApp). */
-async function qrVigente(codigo) {
+/** Anula un pago (no se borra: queda en la lista con su motivo). Un pedido ya entregado no se toca. */
+async function anular(id, { motivo }, usuario) {
   return db.withTransaction(async (client) => {
-    const pedido = await pedidosRepository.bloquear(client, { codigo });
-    const pago = pedido && await pagosRepository.pendienteVigente(client, pedido.id);
+    const pago = await pagosRepository.bloquear(client, id);
     if (!pago) {
-      throw new AppError(409, `El pedido ${codigo} no tiene un QR de pago vigente.`);
+      throw new AppError(404, 'El pago no existe.');
     }
-    return {
-      pago,
-      buffer: await pasarela.imagenQr(pago.qr_payload),
-      texto: `QR de pago del pedido ${codigo}: ${formatearDecimal(pago.monto)} Bs`,
-    };
+    if (pago.anulado_en) {
+      throw new AppError(409, 'Ese pago ya estaba anulado.');
+    }
+    const pedido = await pedidosRepository.bloquear(client, { id: pago.pedido_id });
+    if (pedido.estado === 'ENTREGADO') {
+      throw new AppError(409, `El pedido ${pedido.codigo} ya está entregado: sus pagos no se pueden anular.`);
+    }
+    await pagosRepository.anular(client, pago.id, { usuarioId: usuario.id, motivo });
+    return { pedido: pedido.codigo, ...(await cuentaDePedido(pedido, client)) };
   });
 }
 
-/** Solo desarrollo: hace que la pasarela simulada "cobre" (o rechace) un QR y procesa su callback firmado. */
-async function simularPago(id, estado = 'PAGADO') {
-  const pago = await pagosRepository.buscarPorId(id);
-  if (!pago) {
-    throw new AppError(404, 'El pago no existe.');
-  }
-  const { cuerpo, firma } = pasarela.simularCallback({ transaccionId: pago.transaccion_id, monto: pago.monto, estado });
-  return procesarCallback(pasarela.verificarCallback(cuerpo, firma));
-}
-
-module.exports = { crearCobroQr, presentarCobro, procesarCallback, reintentarProduccion, qrVigente, simularPago };
+module.exports = { anticipoRequerido, cuenta, cuentaDePedido, cuentaPorCodigo, registrar, anular };

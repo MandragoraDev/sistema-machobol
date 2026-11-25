@@ -399,6 +399,69 @@ nlu:
       - me atiende un asesor por favor
       - comuníqueme con alguien de ventas
 
+  # Consultas generales: las responde action_informar_negocio con los datos que el Admin edita en el panel.
+  # Sin frases genéricas como "quiero información": esas son de consultar_productos.
+  - intent: consultar_informacion
+    examples: |
+      - dónde están ubicados?
+      - donde están ubicados
+      - dónde queda la tienda
+      - donde queda su taller
+      - cuál es su dirección
+      - me pasa la dirección por favor
+      - me manda la ubicación
+      - mándeme su ubicación
+      - pásame la ubicación en el mapa
+      - tienen la ubicación en google maps?
+      - cómo llego a su taller
+      - en qué parte de santa cruz están
+      - en qué anillo están
+      - tienen tienda física?
+      - dónde puedo visitarlos
+      - a qué hora abren?
+      - a que hora abren
+      - cuál es su horario de atención
+      - hasta qué hora atienden
+      - qué horario tienen
+      - atienden los sábados?
+      - abren los domingos?
+      - a qué hora cierran
+      - están abiertos ahora?
+      - atienden en feriados?
+      - qué formas de pago aceptan
+      - cómo se puede pagar
+      - aceptan pago con qr?
+      - puedo pagar en efectivo?
+      - se puede pagar con transferencia
+      - reciben cheques?
+      - aceptan cheque
+      - aceptan tarjeta?
+      - hay que dar un adelanto?
+      - cuánto es el anticipo
+      - de cuánto es el adelanto
+      - se paga todo por adelantado?
+      - se puede pagar en cuotas?
+      - cuándo se paga el saldo
+      - cuánto tardan en hacer un portón
+      - cuánto demora la fabricación
+      - cuánto demoran en fabricarlo
+      - en cuánto tiempo lo tienen listo
+      - cuántas semanas tarda la fabricación
+      - cuánto tiempo tardan en entregar un portón
+      - cuál es el plazo de fabricación
+      - cuánto se demoran en hacer uno
+      - es rápido? cuánto tardan
+      - hacen instalaciones en cochabamba?
+      - instalan en otras ciudades?
+      - trabajan fuera de santa cruz?
+      - llegan hasta la paz?
+      - hacen envíos a provincias
+      - trabajan a nivel nacional?
+      - pueden instalar en montero?
+      - van a otros departamentos?
+      - cobran por ir a otra ciudad?
+      - cuánto cobran el traslado a provincia
+
   - synonym: corredizo
     examples: |
       - corrediza

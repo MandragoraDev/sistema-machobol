@@ -1,19 +1,14 @@
 const { Router } = require('express');
 const { authenticate, authorize } = require('../../middlewares/auth');
-const { autenticarServicio } = require('../../middlewares/servicio');
 const controller = require('./pagos.controller');
 
-// Panel: generar el QR de cobro de un pedido (Admin y Ventas).
-const pagos = Router();
-pagos.post('/qr', authenticate, authorize('ADMIN', 'VENTAS'), controller.crearQr);
+// Pagos recibidos (QR del negocio, efectivo, transferencia o cheque): solo el Admin los registra y los anula.
+// La lista y el saldo de cada pedido vienen en su ficha (GET /api/logistica/pedidos/:codigo).
+const router = Router();
 
-// Callback de la pasarela (sin JWT: se autentica con su firma HMAC).
-const webhook = Router();
-webhook.post('/', controller.callback);
+router.use(authenticate, authorize('ADMIN'));
 
-// Solo fuera de producción: simula que el cliente pagó (o que el banco rechazó) un QR.
-// Lo usan los simuladores de desarrollo, con el token de servicio.
-const dev = Router();
-dev.post('/pagos/:id/simular', autenticarServicio, controller.simular);
+router.post('/', controller.registrar);
+router.post('/:id/anular', controller.anular);
 
-module.exports = { pagos, webhook, dev };
+module.exports = router;

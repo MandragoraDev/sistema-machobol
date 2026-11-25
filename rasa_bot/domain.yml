@@ -13,6 +13,7 @@ intents:
   - negar
   - consultar_estado_pedido
   - hablar_con_asesor
+  - consultar_informacion
 
 entities:
   - tipo_porton
@@ -128,6 +129,15 @@ slots:
         conditions:
           - active_loop: formulario_confirmar_pedido
             requested_slot: pedido_confirmado
+  # Día y horario que el cliente prefiere para la reunión con el asesor (texto libre, solo si aceptó la cotización).
+  preferencia_reunion:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: formulario_confirmar_pedido
+            requested_slot: preferencia_reunion
 
 forms:
   formulario_cotizacion:
@@ -139,10 +149,12 @@ forms:
       - tipo_madera
       - accesorios
       - fuera_ciudad
-  # Tras la cotización: "¿Confirma el pedido?". Si la cotización falló, no pregunta nada.
+  # Tras la cotización: "¿Agendamos una reunión con un asesor?" y, si acepta, qué día y horario le conviene.
+  # Si la cotización falló, no pregunta nada. No hay ningún cobro por el bot.
   formulario_confirmar_pedido:
     required_slots:
       - pedido_confirmado
+      - preferencia_reunion
 
 actions:
   - validate_formulario_cotizacion
@@ -155,6 +167,8 @@ actions:
   - action_cotizar
   - action_procesar_confirmacion_pedido
   - action_reiniciar_cotizacion
+  - action_informar_negocio
+  - action_consultar_estado_pedido
 
 # Trato de "usted". En WhatsApp, *texto* se muestra en negrita.
 # Los títulos de botón tienen como máximo 20 caracteres (límite de WhatsApp).
@@ -198,9 +212,6 @@ responses:
   utter_derivar_asesor:
     - text: "Con gusto. Un asesor de MACHOBOL le escribirá por este mismo chat lo antes posible."
 
-  utter_estado_pedido:
-    - text: "Muy pronto podrá consultar aquí el avance de su pedido. Mientras tanto, un asesor le informará el estado por este mismo chat."
-
   utter_ask_tipo_porton:
     - text: "¿Qué tipo de portón necesita? El *corredizo* se desliza sobre un riel y el *batiente* se abre en una o dos hojas."
       buttons:
@@ -225,12 +236,17 @@ responses:
     - text: "Por ahora ofrecemos como accesorios el motor y la puerta de ingreso peatonal."
 
   utter_ask_pedido_confirmado:
-    - text: "¿Confirma el pedido? Le enviaré un QR para pagar el total; la fabricación empieza cuando se confirma el pago."
+    - text: "¿Le parece bien la cotización? Si desea avanzar, agendamos una reunión con un asesor para acordar el precio final y la forma de pago. La reunión no tiene costo."
       buttons:
-        - title: "Sí, confirmar"
+        - title: "Sí, agendar"
           payload: "/confirmar"
+        - title: "Tengo dudas"
+          payload: "/hablar_con_asesor"
         - title: "Ahora no"
           payload: "/negar"
+
+  utter_ask_preferencia_reunion:
+    - text: "¡Perfecto! ¿Qué día y en qué horario le conviene la reunión? Por ejemplo: «el jueves por la tarde»."
 
   utter_cotizacion_cancelada:
     - text: "Entendido, dejamos la cotización aquí. Cuando quiera retomarla, escríbame «cotizar portón»."

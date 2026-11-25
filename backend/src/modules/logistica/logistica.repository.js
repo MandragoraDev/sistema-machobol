@@ -8,17 +8,13 @@ async function fases() {
   return rows;
 }
 
-/** Pedidos pagados: en producción, en ruta, entregados recientes y los que esperan madera (revisión de stock). */
+/** Pedidos con anticipo: en producción, en ruta, entregados recientes y los que esperan madera (revisión de stock). */
 async function tablero() {
   const { rows } = await query(
     `SELECT p.codigo, e.codigo AS estado, e.nombre AS estado_nombre, f.orden AS fase, f.nombre AS fase_nombre,
             c.nombre AS cliente, c.wa_id, pr.tipo_porton, m.especie AS madera_especie, m.espesor_pulg AS madera_espesor_pulg,
             p.ancho_m, p.alto_m, p.total_final, to_char(p.fecha_instalacion, 'YYYY-MM-DD') AS fecha_instalacion,
-            (SELECT COALESCE(q.confirmado_en, q.actualizado_en)
-             FROM pagos_qr q
-             WHERE q.pedido_id = p.id AND q.estado IN ('CONFIRMADO', 'REVISION')
-             ORDER BY q.confirmado_en NULLS LAST, q.id
-             LIMIT 1) AS pagado_en,
+            (SELECT min(pg.creado_en) FROM pagos pg WHERE pg.pedido_id = p.id AND pg.anulado_en IS NULL) AS pagado_en,
             ultimo.creado_en AS en_etapa_desde
      FROM pedidos p
      JOIN estados_pedido e ON e.id = p.estado_id
@@ -45,7 +41,7 @@ async function historial(codigo) {
             en.codigo AS estado_nuevo, en.nombre AS estado_nuevo_nombre,
             fa.orden AS fase_anterior, fa.nombre AS fase_anterior_nombre,
             fn.orden AS fase_nueva, fn.nombre AS fase_nueva_nombre,
-            u.nombre AS usuario, u.rol AS usuario_rol, h.motivo
+            h.total_anterior, h.total_nuevo, u.nombre AS usuario, u.rol AS usuario_rol, h.motivo
      FROM historial_pedido h
      JOIN pedidos p ON p.id = h.pedido_id
      JOIN estados_pedido en ON en.id = h.estado_nuevo_id

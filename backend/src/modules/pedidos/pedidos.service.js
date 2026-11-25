@@ -2,6 +2,7 @@ const db = require('../../config/db');
 const env = require('../../config/env');
 const AppError = require('../../utils/AppError');
 const clientesRepository = require('../clientes/clientes.repository');
+const configuracionService = require('../configuracion/configuracion.service');
 const cotizadorService = require('../cotizador/cotizador.service');
 const { nombreMadera } = require('../../utils/formato');
 const pedidosRepository = require('./pedidos.repository');
@@ -29,8 +30,10 @@ function presentar(p) {
     subtotal_base: p.subtotal_base,
     adicionales: p.adicionales,
     total_adicionales: p.total_adicionales,
+    // total_exacto es el precio referencial de la cotización; total_final, el precio acordado (nace igual).
     total_exacto: p.total_exacto,
     total_final: p.total_final,
+    precio_acordado: p.total_final !== p.total_exacto,
     madera: p.madera_id
       ? {
         id: p.madera_id,
@@ -42,6 +45,8 @@ function presentar(p) {
       : null,
     canal: p.canal,
     observaciones: p.observaciones,
+    fuera_ciudad: p.fuera_ciudad,
+    reunion: { preferencia: p.preferencia_reunion, fecha: p.fecha_reunion },
     fecha_instalacion: p.fecha_instalacion,
     creado_en: p.creado_en,
     valido_hasta: validoHasta(p.creado_en),
@@ -67,7 +72,7 @@ async function obtenerDelCliente(codigo, waId) {
 
 /**
  * Cotiza con los precios vigentes y guarda el pedido en estado COTIZADO, con el precio por m² de la madera elegida
- * y el de cada accesorio congelados, y la madera que se descontará cuando se confirme el pago.
+ * y el de cada accesorio congelados, y la madera que se descontará cuando empiece la producción.
  */
 async function crearPedido(solicitud, { clienteId, canal, usuarioId = null, observaciones = null }) {
   const cliente = await clientesRepository.buscarPorId(clienteId);
@@ -98,6 +103,7 @@ async function crearPedido(solicitud, { clienteId, canal, usuarioId = null, obse
       canal,
       creado_por: usuarioId,
       observaciones,
+      fuera_ciudad: cotizacion.fuera_ciudad,
     });
     await pedidosRepository.insertarAdicionales(client, id, cotizacion.adicionales);
     return nuevoCodigo;
@@ -106,7 +112,8 @@ async function crearPedido(solicitud, { clienteId, canal, usuarioId = null, obse
 }
 
 async function proformaPdf(pedido) {
-  return { buffer: await generarProforma(pedido), nombre: `Proforma ${pedido.codigo}.pdf` };
+  const negocio = await configuracionService.obtener();
+  return { buffer: await generarProforma(pedido, negocio), nombre: `Proforma ${pedido.codigo}.pdf` };
 }
 
 module.exports = { obtener, obtenerDelCliente, crearPedido, proformaPdf, validoHasta };

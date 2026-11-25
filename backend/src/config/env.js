@@ -52,9 +52,4 @@ module.exports = {
   whatsapp,
   // Días que el precio de una cotización queda congelado.
   cotizacionValidezDias: entero('COTIZACION_VALIDEZ_DIAS', 15),
-  pagos: {
-    // Secreto con el que la pasarela firma sus callbacks (HMAC-SHA256 del cuerpo).
-    webhookSecret: secreto('PAGOS_WEBHOOK_SECRET'),
-    qrVigenciaMinutos: entero('PAGOS_QR_VIGENCIA_MINUTOS', 60),
-  },
 };

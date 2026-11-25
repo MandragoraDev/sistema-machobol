@@ -2,7 +2,7 @@
 -- MACHOBOL: creación completa de la base de datos en Supabase (SQL Editor)
 --
 -- Ejecutar UNA sola vez, sobre un proyecto vacío. Todo corre en una transacción: si algo falla, no queda nada a medias.
--- Generado el 2026-11-18 a partir de backend/src/db/migrations (8 migraciones) y del seed.
+-- Generado el 2026-11-25 a partir de backend/src/db/migrations (9 migraciones) y del seed.
 -- No editar a mano: los cambios futuros se hacen con una migración nueva y `npm run db:migrate`.
 --
 -- Después de ejecutarlo, falta solo el usuario Administrador: lo crea `npm run db:seed` con los datos del .env
@@ -558,6 +558,175 @@ $$;
 INSERT INTO public.pgmigrations (name, run_on) VALUES ('1793620807000_proteger-api-de-supabase', now());
 
 -- ====================================================================================================
+-- Migración 1793620808000_venta-con-reunion-y-anticipo
+-- ====================================================================================================
+
+-- Sprint 6 (decisión del 2026-11-25): el bot no cobra. Cotiza un precio referencial y agenda una reunión con un asesor;
+-- el precio final y los pagos se acuerdan en persona, y la fabricación empieza con un anticipo (50 %, editable).
+
+-- 1. Estados de la venta. PENDIENTE_PAGO (esperaba el QR de la pasarela) deja de usarse; se conserva porque el
+--    historial inmutable lo menciona.
+INSERT INTO estados_pedido (codigo, nombre, descripcion) VALUES
+  ('REUNION_SOLICITADA', 'Reunión solicitada', 'El cliente aceptó la cotización y pidió una reunión con un asesor.'),
+  ('REUNION_AGENDADA', 'Reunión agendada', 'El asesor fijó la reunión para acordar el precio final y los pagos.')
+ON CONFLICT (codigo) DO NOTHING;
+UPDATE estados_pedido SET descripcion = 'Ya no se usa: esperaba el pago del QR de la pasarela (hasta el Sprint 5).'
+WHERE codigo = 'PENDIENTE_PAGO';
+UPDATE estados_pedido SET descripcion = 'Anticipo recibido, pero sin madera suficiente para iniciar la producción.'
+WHERE codigo = 'REVISION_STOCK';
+
+-- Los pedidos que esperaban el QR vuelven a cotizados (el trigger lo deja en el historial con este motivo).
+SELECT set_config('machobol.usuario_id', '', true),
+       set_config('machobol.motivo', 'Cambio del proceso de venta: el cobro QR se reemplaza por la reunión con un asesor', true);
+UPDATE pedidos SET estado_id = (SELECT id FROM estados_pedido WHERE codigo = 'COTIZADO')
+WHERE estado_id = (SELECT id FROM estados_pedido WHERE codigo = 'PENDIENTE_PAGO');
+SELECT set_config('machobol.motivo', '', true);
+
+-- 2. Pagos registrados a mano por el Admin (reemplazan a pagos_qr). Un pago no se borra ni se edita: se anula.
+CREATE TYPE metodo_pago AS ENUM ('QR', 'EFECTIVO', 'TRANSFERENCIA', 'CHEQUE');
+
+CREATE TABLE pagos (
+  id                INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  pedido_id         INTEGER       NOT NULL REFERENCES pedidos (id),
+  monto             NUMERIC(12,2) NOT NULL,
+  metodo            metodo_pago   NOT NULL,
+  -- Número de cheque, de transacción o de comprobante.
+  referencia        VARCHAR(80),
+  observacion       TEXT,
+  -- NULL en los pagos que llegaron por la pasarela QR (hasta el Sprint 5).
+  registrado_por    INTEGER       REFERENCES usuarios (id),
+  anulado_en        TIMESTAMPTZ,
+  anulado_por       INTEGER       REFERENCES usuarios (id),
+  motivo_anulacion  TEXT,
+  creado_en         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  CONSTRAINT ck_pagos_monto CHECK (monto > 0),
+  CONSTRAINT ck_pagos_anulacion_completa CHECK (
+    (anulado_en IS NULL AND anulado_por IS NULL AND motivo_anulacion IS NULL)
+    OR (anulado_en IS NOT NULL AND motivo_anulacion IS NOT NULL AND length(btrim(motivo_anulacion)) > 0)
+  )
+);
+
+CREATE INDEX ix_pagos_pedido ON pagos (pedido_id);
+CREATE INDEX ix_pagos_creado_en ON pagos (creado_en) WHERE anulado_en IS NULL;
+
+CREATE FUNCTION fn_pagos_solo_anulacion() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'Un pago no se borra: se anula con un motivo.' USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF OLD.anulado_en IS NOT NULL
+     OR (NEW.pedido_id, NEW.monto, NEW.metodo, NEW.referencia, NEW.observacion, NEW.registrado_por, NEW.creado_en)
+        IS DISTINCT FROM
+        (OLD.pedido_id, OLD.monto, OLD.metodo, OLD.referencia, OLD.observacion, OLD.registrado_por, OLD.creado_en) THEN
+    RAISE EXCEPTION 'Un pago registrado no se modifica: solo se puede anular, una vez.' USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_pagos_solo_anulacion BEFORE UPDATE OR DELETE ON pagos
+  FOR EACH ROW EXECUTE FUNCTION fn_pagos_solo_anulacion();
+
+-- El dinero que ya entró por la pasarela pasa a la tabla nueva; los QR pendientes, vencidos o fallidos no eran pagos.
+INSERT INTO pagos (pedido_id, monto, metodo, referencia, observacion, creado_en)
+SELECT pedido_id, monto, 'QR', transaccion_id, 'Pago por la pasarela QR (hasta el Sprint 5)', COALESCE(confirmado_en, actualizado_en)
+FROM pagos_qr
+WHERE estado IN ('CONFIRMADO', 'REVISION')
+ORDER BY id;
+
+DROP TABLE pagos_qr;
+DROP TYPE estado_pago;
+
+-- 3. Datos del negocio que responde el bot y número del encargado que recibe los avisos (una sola fila, la carga el seed).
+CREATE TABLE configuracion_negocio (
+  id                  SMALLINT      PRIMARY KEY DEFAULT 1,
+  ciudad              VARCHAR(80)   NOT NULL,
+  direccion           TEXT          NOT NULL,
+  maps_url            VARCHAR(300),
+  horarios            TEXT          NOT NULL,
+  formas_pago         TEXT          NOT NULL,
+  tiempo_fabricacion  TEXT          NOT NULL,
+  cobertura           TEXT          NOT NULL,
+  -- Porcentaje del precio acordado que debe estar pagado para iniciar la producción.
+  anticipo_pct        NUMERIC(5,2)  NOT NULL DEFAULT 50,
+  -- WhatsApp del encargado (solo dígitos, con código de país) que recibe los avisos de madera y de reuniones.
+  whatsapp_avisos     VARCHAR(15),
+  actualizado_por     INTEGER       REFERENCES usuarios (id),
+  creado_en           TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  actualizado_en      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  CONSTRAINT ck_configuracion_negocio_unica CHECK (id = 1),
+  CONSTRAINT ck_configuracion_negocio_anticipo CHECK (anticipo_pct > 0 AND anticipo_pct <= 100),
+  CONSTRAINT ck_configuracion_negocio_whatsapp CHECK (whatsapp_avisos ~ '^[0-9]{8,15}$')
+);
+
+CREATE TRIGGER trg_configuracion_negocio_actualizado_en BEFORE UPDATE ON configuracion_negocio
+  FOR EACH ROW EXECUTE FUNCTION fn_set_actualizado_en();
+
+-- 4. Pedido: reunión con el asesor y traslado. total_final pasa a ser el precio final acordado (nace igual al referencial).
+ALTER TABLE pedidos
+  ADD COLUMN fecha_reunion        TIMESTAMPTZ,
+  ADD COLUMN preferencia_reunion  TEXT,
+  -- Instalación a 45 minutos o más de la ciudad: el adicional por el traslado se acuerda en la reunión.
+  ADD COLUMN fuera_ciudad         BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX ix_pedidos_fecha_reunion ON pedidos (fecha_reunion) WHERE fecha_reunion IS NOT NULL;
+
+UPDATE pedidos p SET fuera_ciudad = true
+WHERE EXISTS (
+  SELECT 1 FROM pedido_accesorios pa JOIN accesorios a ON a.id = pa.accesorio_id
+  WHERE pa.pedido_id = p.id AND a.codigo = 'TRANSPORTE_VIATICOS'
+);
+
+-- 5. El recargo fijo de 150 Bs por transporte se retira (las cotizaciones anteriores lo conservan).
+UPDATE accesorios SET activo = false WHERE codigo = 'TRANSPORTE_VIATICOS';
+
+-- 6. El historial registra también los cambios del precio acordado, con su motivo.
+ALTER TABLE historial_pedido
+  ADD COLUMN total_anterior  NUMERIC(12,2),
+  ADD COLUMN total_nuevo     NUMERIC(12,2);
+
+CREATE OR REPLACE FUNCTION fn_registrar_historial_pedido() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  cambio_total boolean := false;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    cambio_total := NEW.total_final IS DISTINCT FROM OLD.total_final;
+    IF NEW.estado_id IS NOT DISTINCT FROM OLD.estado_id
+       AND NEW.fase_actual_id IS NOT DISTINCT FROM OLD.fase_actual_id
+       AND NOT cambio_total THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+  INSERT INTO historial_pedido (pedido_id, estado_anterior_id, estado_nuevo_id, fase_anterior_id, fase_nueva_id,
+                                total_anterior, total_nuevo, usuario_id, motivo)
+  VALUES (
+    NEW.id,
+    CASE WHEN TG_OP = 'UPDATE' THEN OLD.estado_id END,
+    NEW.estado_id,
+    CASE WHEN TG_OP = 'UPDATE' THEN OLD.fase_actual_id END,
+    NEW.fase_actual_id,
+    CASE WHEN cambio_total THEN OLD.total_final END,
+    CASE WHEN cambio_total THEN NEW.total_final END,
+    NULLIF(current_setting('machobol.usuario_id', true), '')::int,
+    NULLIF(current_setting('machobol.motivo', true), '')
+  );
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER trg_pedidos_historial ON pedidos;
+CREATE TRIGGER trg_pedidos_historial AFTER INSERT OR UPDATE OF estado_id, fase_actual_id, total_final ON pedidos
+  FOR EACH ROW EXECUTE FUNCTION fn_registrar_historial_pedido();
+
+-- 7. Las tablas nuevas, protegidas como las demás frente a la API pública de Supabase (ver 1793620807000).
+ALTER TABLE pagos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE configuracion_negocio ENABLE ROW LEVEL SECURITY;
+
+INSERT INTO public.pgmigrations (name, run_on) VALUES ('1793620808000_venta-con-reunion-y-anticipo', now());
+
+-- ====================================================================================================
 -- Datos base del sistema (equivalente a `npm run db:seed`, sin el usuario Administrador)
 -- ====================================================================================================
 
@@ -594,19 +763,19 @@ INSERT INTO accesorios (codigo, nombre, tipo_adicional, precio, tipo_porton_comp
 SELECT codigo, nombre, tipo::tipo_adicional, precio, compatible::tipo_porton FROM (VALUES
   ('MOTOR_CORREDIZO', 'Motor para portón corredizo', 'ACCESORIO', 1740, 'CORREDIZO'),
   ('MOTOR_BATIENTE', 'Motor para portón batiente', 'ACCESORIO', 2088, 'BATIENTE'),
-  ('PUERTA_INGRESO', 'Puerta de ingreso peatonal', 'ACCESORIO', 696, NULL),
-  ('TRANSPORTE_VIATICOS', 'Transporte / viáticos (entrega fuera de la ciudad)', 'RECARGO', 150, NULL)
+  ('PUERTA_INGRESO', 'Puerta de ingreso peatonal', 'ACCESORIO', 696, NULL)
 ) AS v(codigo, nombre, tipo, precio, compatible)
 ON CONFLICT (codigo) DO NOTHING;
 
 INSERT INTO estados_pedido (codigo, nombre, descripcion) VALUES
-  ('COTIZADO', 'Cotizado', 'Cotización emitida, aún sin solicitud de pago.'),
-  ('PENDIENTE_PAGO', 'Pendiente de pago', 'QR generado, esperando la confirmación del banco.'),
-  ('EN_PRODUCCION', 'En producción', 'Pago confirmado y madera descontada; avanza por las fases 1 a 10.'),
+  ('COTIZADO', 'Cotizado', 'Cotización emitida con precio referencial.'),
+  ('REUNION_SOLICITADA', 'Reunión solicitada', 'El cliente aceptó la cotización y pidió una reunión con un asesor.'),
+  ('REUNION_AGENDADA', 'Reunión agendada', 'El asesor fijó la reunión para acordar el precio final y los pagos.'),
+  ('EN_PRODUCCION', 'En producción', 'Anticipo recibido y madera descontada; avanza por las fases 1 a 10.'),
   ('EN_RUTA', 'En ruta / instalación', 'Despachado del taller; en camino o en instalación (fase 11).'),
   ('ENTREGADO', 'Entregado / instalado', 'Fase 11 (instalación) completada.'),
   ('CANCELADO', 'Cancelado', 'Pedido anulado.'),
-  ('REVISION_STOCK', 'Revisión de stock', 'Pago recibido sin madera suficiente; requiere acción del Admin.')
+  ('REVISION_STOCK', 'Revisión de stock', 'Anticipo recibido, pero sin madera suficiente para iniciar la producción.')
 ON CONFLICT (codigo) DO NOTHING;
 
 INSERT INTO fases_produccion (orden, nombre) VALUES
@@ -622,5 +791,10 @@ INSERT INTO fases_produccion (orden, nombre) VALUES
   (10, 'Control de calidad y despacho'),
   (11, 'Instalación')
 ON CONFLICT (orden) DO NOTHING;
+
+-- Datos del negocio que responde el bot (el Admin los edita en Configuración) y anticipo para iniciar la producción.
+INSERT INTO configuracion_negocio (id, ciudad, direccion, maps_url, horarios, formas_pago, tiempo_fabricacion, cobertura, anticipo_pct)
+VALUES (1, 'Santa Cruz de la Sierra', '4to anillo y calle Las Anguilas, a una cuadra de la radial 19', 'https://maps.app.goo.gl/ygjFbw5tswdSbFnv9', 'De 7:30 a 21:00', 'QR, efectivo, transferencia y cheque', 'De 3 semanas a 1 mes por portón', 'Instalamos a nivel nacional. Si el lugar queda a 45 minutos o más de la ciudad, el traslado tiene un costo adicional que se acuerda con el asesor.', 50)
+ON CONFLICT (id) DO NOTHING;
 
 COMMIT;

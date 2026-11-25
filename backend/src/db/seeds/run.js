@@ -28,19 +28,30 @@ const ACCESORIOS = [
   { codigo: 'MOTOR_CORREDIZO', nombre: 'Motor para portón corredizo', tipo_adicional: 'ACCESORIO', precio: 1740, tipo_porton_compatible: 'CORREDIZO' },
   { codigo: 'MOTOR_BATIENTE', nombre: 'Motor para portón batiente', tipo_adicional: 'ACCESORIO', precio: 2088, tipo_porton_compatible: 'BATIENTE' },
   { codigo: 'PUERTA_INGRESO', nombre: 'Puerta de ingreso peatonal', tipo_adicional: 'ACCESORIO', precio: 696, tipo_porton_compatible: null },
-  // Solo se aplica si la dirección de entrega está fuera de la ciudad (a más de 45 min).
-  { codigo: 'TRANSPORTE_VIATICOS', nombre: 'Transporte / viáticos (entrega fuera de la ciudad)', tipo_adicional: 'RECARGO', precio: 150, tipo_porton_compatible: null },
 ];
 
 const ESTADOS_PEDIDO = [
-  { codigo: 'COTIZADO', nombre: 'Cotizado', descripcion: 'Cotización emitida, aún sin solicitud de pago.' },
-  { codigo: 'PENDIENTE_PAGO', nombre: 'Pendiente de pago', descripcion: 'QR generado, esperando la confirmación del banco.' },
-  { codigo: 'EN_PRODUCCION', nombre: 'En producción', descripcion: 'Pago confirmado y madera descontada; avanza por las fases 1 a 10.' },
+  { codigo: 'COTIZADO', nombre: 'Cotizado', descripcion: 'Cotización emitida con precio referencial.' },
+  { codigo: 'REUNION_SOLICITADA', nombre: 'Reunión solicitada', descripcion: 'El cliente aceptó la cotización y pidió una reunión con un asesor.' },
+  { codigo: 'REUNION_AGENDADA', nombre: 'Reunión agendada', descripcion: 'El asesor fijó la reunión para acordar el precio final y los pagos.' },
+  { codigo: 'EN_PRODUCCION', nombre: 'En producción', descripcion: 'Anticipo recibido y madera descontada; avanza por las fases 1 a 10.' },
   { codigo: 'EN_RUTA', nombre: 'En ruta / instalación', descripcion: 'Despachado del taller; en camino o en instalación (fase 11).' },
   { codigo: 'ENTREGADO', nombre: 'Entregado / instalado', descripcion: 'Fase 11 (instalación) completada.' },
   { codigo: 'CANCELADO', nombre: 'Cancelado', descripcion: 'Pedido anulado.' },
-  { codigo: 'REVISION_STOCK', nombre: 'Revisión de stock', descripcion: 'Pago recibido sin madera suficiente; requiere acción del Admin.' },
+  { codigo: 'REVISION_STOCK', nombre: 'Revisión de stock', descripcion: 'Anticipo recibido, pero sin madera suficiente para iniciar la producción.' },
 ];
+
+// Datos del negocio que responde el bot (el Admin los edita en Configuración). Decididos el 2026-11-25.
+const NEGOCIO = {
+  ciudad: 'Santa Cruz de la Sierra',
+  direccion: '4to anillo y calle Las Anguilas, a una cuadra de la radial 19',
+  maps_url: 'https://maps.app.goo.gl/ygjFbw5tswdSbFnv9',
+  horarios: 'De 7:30 a 21:00',
+  formas_pago: 'QR, efectivo, transferencia y cheque',
+  tiempo_fabricacion: 'De 3 semanas a 1 mes por portón',
+  cobertura: 'Instalamos a nivel nacional. Si el lugar queda a 45 minutos o más de la ciudad, el traslado tiene un costo adicional que se acuerda con el asesor.',
+  anticipo_pct: 50,
+};
 
 // Las 11 fases definitivas de producción, en orden estricto (PLAN §2.4).
 const FASES = [
@@ -123,6 +134,14 @@ async function sembrar(client, admin) {
       [indice + 1, nombre],
     );
   }
+
+  await client.query(
+    `INSERT INTO configuracion_negocio (id, ciudad, direccion, maps_url, horarios, formas_pago, tiempo_fabricacion, cobertura, anticipo_pct)
+     VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (id) DO NOTHING`,
+    [NEGOCIO.ciudad, NEGOCIO.direccion, NEGOCIO.maps_url, NEGOCIO.horarios, NEGOCIO.formas_pago,
+      NEGOCIO.tiempo_fabricacion, NEGOCIO.cobertura, NEGOCIO.anticipo_pct],
+  );
 
   const passwordHash = await hashearPassword(admin.password);
   const { rowCount } = await client.query(

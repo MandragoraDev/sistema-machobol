@@ -51,6 +51,12 @@ export function hoyIso() {
   return new Date(ahora.getTime() - ahora.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
+/** Fecha ISO de la API → valor de un input datetime-local ("2026-11-27T10:00"), en la hora del navegador. */
+export function aFechaHoraLocal(iso) {
+  const fecha = new Date(iso);
+  return new Date(fecha.getTime() - fecha.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 /** "hoy", "hace 1 día", "hace 5 días". */
 export function haceDias(fecha) {
   const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / DIA_MS);
