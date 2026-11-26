@@ -1,0 +1,5 @@
+# Lo que se ejecuta en el servidor Linux va siempre con fin de línea LF (un "\r" rompe los scripts de shell).
+*.sh text eol=lf
+Dockerfile* text eol=lf
+deploy/** text eol=lf
+rasa_bot/docker/** text eol=lf

@@ -43,6 +43,9 @@ module.exports = {
   port: Number(process.env.PORT) || 4000,
   databaseUrl: requerida('DATABASE_URL'),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  // Proxies de confianza delante de la API (en producción, 1: Caddy). Con ellos, req.ip es la IP real del cliente y el
+  // límite de intentos de inicio de sesión no trata a todos los usuarios como si fueran el proxy.
+  trustProxy: Number(process.env.TRUST_PROXY || 0),
   logLevel: process.env.LOG_LEVEL || 'info',
   jwtSecret: secreto('JWT_SECRET'),
   jwtExpiraEn: process.env.JWT_EXPIRES_IN || '8h',

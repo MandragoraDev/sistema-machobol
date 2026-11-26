@@ -583,12 +583,25 @@ COTIZADO ──"quiero reunión"──► REUNIÓN SOLICITADA ──el asesor fi
 
 #### Parte B — Despliegue en la nube
 
-- API, Rasa, acciones y panel empaquetados con Docker Compose, en un servidor de AWS en São Paulo, junto a Supabase.
-  Cuenta creada el 2026-11-24 (plan gratuito, 100 USD de crédito hasta el 2027-05-24): primero se confirma qué
-  servicios permite ese plan.
-- HTTPS con dominio propio.
-- Endurecimiento: CORS limitado, modo producción, secretos nuevos y contraseña nueva de la base.
-- Copia diaria de la base.
+- [x] **Empaquetado (2026-11-25):** [deploy/docker-compose.yml](deploy/docker-compose.yml) con `caddy` (HTTPS automático,
+  panel compilado, `/api/internal` bloqueado desde internet), `api` (Node 24 Debian slim, detrás del proxy con
+  `TRUST_PROXY=1`), `rasa` (3.6.21 con el modelo entrenado), `acciones` (rasa-sdk 3.6.2 + aiohttp) y `respaldo`
+  (pg_dump diario del esquema public, 14 días). Solo Caddy publica puertos. Scripts `deploy/preparar-servidor.sh`
+  (Docker, 2 GB de intercambio, actualizaciones de seguridad) y `deploy/subir.sh` (sube el último commit y el modelo por
+  SSH, conserva la versión anterior para volver atrás). La imagen de acciones solo existe para x86: el servidor no puede
+  ser ARM (Graviton).
+  **Probado con Docker Desktop** (`DOMINIO=localhost`, contra Supabase): los 5 contenedores sanos en ~50 s; HTTP → HTTPS,
+  panel y sus rutas, `/api/health` con la base, `/api/internal` bloqueado desde fuera (404 aun con el token), cabeceras
+  de seguridad, inicio de sesión a través de Caddy con el límite por IP, bot completo dentro de la red de Docker y copia
+  de la base **restaurada** en un PostgreSQL vacío (datos, funciones y triggers; el historial sigue inmutable).
+  Memoria en uso: ~1 GB (Rasa ≈ 914 MB, API ≈ 53 MB, acciones ≈ 32 MB, Caddy ≈ 15 MB).
+- [ ] Servidor en AWS São Paulo (x86, 4 GB recomendado), IP fija, puertos 80/443. Cuenta creada el 2026-11-24 (plan
+  gratuito, 100 USD de crédito hasta el 2027-05-24): primero se confirma si el plan permite Lightsail o solo EC2.
+  Acceso desde la terminal con `aws login` (AWS CLI ≥ 2.32, sin claves de acceso).
+- [ ] HTTPS con dominio (DuckDNS gratuito o dominio propio).
+- [ ] Endurecimiento: secretos nuevos de producción, contraseña nueva de la base y del Admin (CORS, modo producción y
+  proxy de confianza ya van en el compose).
+- [ ] Copia diaria de la base funcionando en el servidor (la restauración ya se probó en local).
 - App de Meta: webhook en el dominio, número de prueba y plantillas enviadas a aprobación (avisos al cliente y al
   encargado).
 

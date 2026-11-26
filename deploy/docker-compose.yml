@@ -1,0 +1,86 @@
+# MACHOBOL en producción: panel + HTTPS (Caddy), API, Rasa, acciones y copia diaria de la base.
+# La base de datos es Supabase (São Paulo); no corre en este servidor.
+#
+#   cd deploy && docker compose up -d --build
+#
+# Secretos y dominio: deploy/.env (copia de .env.example; nunca se sube a git). Solo Caddy publica puertos (80 y 443);
+# la API, Rasa y las acciones se hablan por la red interna de Docker.
+name: machobol
+
+x-registros: &registros
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  caddy:
+    build: ../frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO en deploy/.env}
+      EMAIL_ACME: ${EMAIL_ACME:?Falta EMAIL_ACME en deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_datos:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    <<: *registros
+
+  api:
+    build: ../backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      RASA_URL: http://rasa:5005
+      TRUST_PROXY: "1"
+      CORS_ORIGIN: https://${DOMINIO}
+    <<: *registros
+
+  rasa:
+    build:
+      context: ../rasa_bot
+      dockerfile: Dockerfile.rasa
+    restart: unless-stopped
+    depends_on:
+      - acciones
+    <<: *registros
+
+  acciones:
+    build:
+      context: ../rasa_bot
+      dockerfile: Dockerfile.acciones
+    restart: unless-stopped
+    environment:
+      MACHOBOL_API_URL: http://api:4000/api
+      SERVICE_TOKEN: ${SERVICE_TOKEN:?Falta SERVICE_TOKEN en deploy/.env}
+    <<: *registros
+
+  # pg_dump diario del esquema public de Supabase; guarda 14 días en el volumen "respaldos".
+  respaldo:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Falta DATABASE_URL en deploy/.env}
+    # DATABASE_URL usa sslrootcert=certs/supabase-ca.crt (relativo): desde "/" apunta al certificado montado.
+    working_dir: /
+    entrypoint: ["/bin/sh", "/respaldo.sh"]
+    volumes:
+      - ./respaldo.sh:/respaldo.sh:ro
+      - ../backend/certs:/certs:ro
+      - respaldos:/respaldos
+    <<: *registros
+
+volumes:
+  caddy_datos:
+  caddy_config:
+  respaldos:

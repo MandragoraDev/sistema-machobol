@@ -1,0 +1,3 @@
+# Endpoints de Rasa dentro de Docker (deploy/docker-compose.yml): el servidor de acciones es el contenedor "acciones".
+action_endpoint:
+  url: "http://acciones:5055/webhook"

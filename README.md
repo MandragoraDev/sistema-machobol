@@ -190,6 +190,33 @@ npm run pruebas:rendimiento     # tiempos de respuesta de los endpoints principa
 
 Las pruebas de aceptación (UAT) y la medición de tiempos se describen en [docs/UAT_MACHOBOL.md](docs/UAT_MACHOBOL.md).
 
+## Producción (servidor en AWS São Paulo)
+
+Todo corre en contenedores Docker ([deploy/docker-compose.yml](deploy/docker-compose.yml)), junto a la base de Supabase:
+
+| Contenedor | Qué hace |
+|---|---|
+| `caddy` | HTTPS automático (Let's Encrypt), sirve el panel compilado y reenvía `/api` a la API. Bloquea `/api/internal` desde internet. Único que publica puertos (80 y 443) |
+| `api` | API de Node, detrás de Caddy (`TRUST_PROXY=1`: el límite de intentos de login ve la IP real) |
+| `rasa` · `acciones` | Asistente con el modelo ya entrenado, y sus acciones; solo en la red interna de Docker |
+| `respaldo` | Copia diaria de la base (`pg_dump` del esquema public); guarda 14 días |
+
+**Primera vez** (servidor Ubuntu 24.04 x86 con IP fija y puertos 80/443 abiertos; el dominio debe apuntar a esa IP):
+
+```bash
+ssh ubuntu@IP 'bash -s' < deploy/preparar-servidor.sh   # Docker, memoria de intercambio, actualizaciones automáticas
+# En el servidor: /opt/machobol/actual/deploy/.env con los secretos de producción (copia de deploy/.env.example).
+```
+
+**Cada despliegue** (desde la raíz del repositorio, en Git Bash): primero `npm run db:migrate` en `backend` si hay
+migraciones nuevas, y luego
+
+```bash
+deploy/subir.sh ubuntu@IP ruta/a/la/llave.pem   # sube el último commit y el modelo de Rasa, y levanta todo
+```
+
+El script conserva la versión anterior en `/opt/machobol/anterior` e imprime cómo volver a ella si algo falla.
+
 ## Scripts del backend
 
 | Script | Qué hace |

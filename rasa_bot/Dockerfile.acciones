@@ -1,0 +1,16 @@
+# Servidor de acciones del asistente (rasa-sdk). Contexto de construcción: rasa_bot/.
+FROM rasa/rasa-sdk:3.6.2
+
+WORKDIR /app
+USER root
+# Las acciones llaman a la API con aiohttp (misma versión que en el entorno de desarrollo).
+RUN pip install --no-cache-dir aiohttp==3.9.5
+COPY actions ./actions
+USER 1001
+
+# En Docker, Rasa llega desde otro contenedor: se escucha en la red interna (el puerto no se publica).
+ENV SANIC_HOST=0.0.0.0
+EXPOSE 5055
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5055/health', timeout=4)"
+CMD ["start", "--actions", "actions", "--port", "5055"]

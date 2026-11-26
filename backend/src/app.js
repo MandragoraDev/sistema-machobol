@@ -9,6 +9,7 @@ const { notFound, errorHandler } = require('./middlewares/errorHandler');
 
 const app = express();
 
+app.set('trust proxy', env.trustProxy);
 app.use(pinoHttp({ logger }));
 app.use(helmet());
 app.use(cors({ origin: env.corsOrigin }));

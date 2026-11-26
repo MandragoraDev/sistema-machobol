@@ -1,0 +1,35 @@
+# Caddy: HTTPS automático (Let's Encrypt) para el dominio, el panel compilado y el reenvío de /api a la API.
+# DOMINIO y EMAIL_ACME vienen de deploy/.env.
+{
+	email {$EMAIL_ACME}
+}
+
+{$DOMINIO} {
+	encode zstd gzip
+
+	# La API interna es solo para el servidor de acciones, que llega por la red de Docker: desde internet no existe.
+	handle /api/internal/* {
+		respond 404
+	}
+
+	# API REST del panel y webhook de WhatsApp.
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+
+	# Panel (React): los archivos con hash se guardan un año; el resto de rutas cae en index.html.
+	handle {
+		root * /srv/panel
+		@estaticos path /assets/*
+		header @estaticos Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
